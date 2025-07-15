@@ -21,3 +21,6 @@ easier than downloading static PDFs from transit websites.
 - Add support for Golden Arrow and train timetables.
 - Offline access or caching.
 - Mobile-first UX enhancements.
+
+## Preview 
+![Watch the demo]([https://www.youtube.com/watch?v=VIDEO_ID](https://youtu.be/RCbFUW39EwI))
