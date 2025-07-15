@@ -23,4 +23,4 @@ easier than downloading static PDFs from transit websites.
 - Mobile-first UX enhancements.
 
 ## Preview 
-![Watch the demo]([https://www.youtube.com/watch?v=VIDEO_ID](https://youtu.be/RCbFUW39EwI))
+![Watch the demo](https://youtu.be/RCbFUW39EwI)
