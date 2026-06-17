@@ -28,7 +28,6 @@ const SITE_URL = (IS_PRODUCTION
   ? process.env.CANONICAL_SITE_URL || PRODUCTION_SITE_URL
   : process.env.SITE_URL || DEFAULT_SITE_URL
 ).replace(/\/$/, '');
-const ADSENSE_PUBLISHER_ID = process.env.ADSENSE_PUBLISHER_ID || 'pub-6988683138579622';
 const CLIENT_BUILD_DIR = path.join(__dirname, 'client', 'build');
 const CLIENT_PUBLIC_DIR = path.join(__dirname, 'client', 'public');
 const INDEX_HTML_PATH = path.join(CLIENT_BUILD_DIR, 'index.html');
@@ -156,12 +155,12 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       baseUri: ["'self'"],
-      connectSrc: ["'self'", 'https://*.google.com', 'https://*.google-analytics.com'],
+      connectSrc: ["'self'"],
       fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-      frameSrc: ["'self'", 'https://googleads.g.doubleclick.net', 'https://tpc.googlesyndication.com'],
-      imgSrc: ["'self'", 'data:', 'https://*.google.com', 'https://*.googleusercontent.com', 'https://*.googlesyndication.com', 'https://*.doubleclick.net'],
+      frameSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:'],
       objectSrc: ["'none'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", 'https://pagead2.googlesyndication.com', 'https://fundingchoicesmessages.google.com'],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       upgradeInsecureRequests: IS_PRODUCTION ? [] : null,
     },
@@ -567,12 +566,11 @@ const INFO_PAGES = {
     title: 'Privacy Policy | Fika Timetables',
     heading: 'Privacy Policy',
     eyebrow: 'Privacy',
-    description: 'Read how Fika Timetables handles offline timetable caching, advertising cookies, third-party ad identifiers, and consent choices.',
+    description: 'Read how Fika Timetables handles offline timetable caching, local browser storage, and timetable lookup privacy.',
     body: [
       'Fika Timetables stores viewed and saved timetables in your browser using IndexedDB so selected timetable data can be available offline.',
-      'Fika Timetables uses Google AdSense to show advertising. Google and other third-party vendors may use cookies, web beacons, IP addresses, and similar identifiers to serve, personalize, limit, and measure ads.',
-      'Google uses advertising cookies to help serve ads based on your prior visits to this and other websites. You can opt out of personalized advertising by visiting Google Ads Settings at https://adssettings.google.com, review Google advertising technologies at https://policies.google.com/technologies/ads, or use industry opt-out tools such as https://www.aboutads.info/choices.',
-      'You can manage or delete cookies in your browser settings. Where required by law, including for visitors in the European Economic Area, the United Kingdom, and Switzerland, Fika Timetables will request consent before using cookies or identifiers for personalized advertising.',
+      'Fika Timetables does not run third-party promotional networks or personalized marketing trackers.',
+      'You can manage or delete locally stored timetable data in your browser settings. Clearing site data may remove saved offline timetables.',
       'The site does not require user accounts and does not ask for sensitive personal information. Contact hello@fikatimetables.co.za for privacy questions.',
       'Route searches and saved timetable choices are handled in your browser unless they are needed to request timetable data from the server.',
     ],
@@ -1540,14 +1538,6 @@ app.get('/sitemap.xml', async (req, res) => {
 
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${SITE_URL}/sitemap.xml\n`);
-});
-
-app.get('/ads.txt', (req, res) => {
-  const adsTxt = ADSENSE_PUBLISHER_ID
-    ? `google.com, ${ADSENSE_PUBLISHER_ID}, DIRECT, f08c47fec0942fa0\n`
-    : '# AdSense publisher id pending. Set ADSENSE_PUBLISHER_ID to enable ads.txt.\n';
-
-  res.type('text/plain').send(adsTxt);
 });
 
 app.get('/sw.js', (req, res) => {

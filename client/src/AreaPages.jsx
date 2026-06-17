@@ -1,6 +1,6 @@
 import React from 'react';
 import RouteLinkList from './RouteLinkList';
-import SeoAdLayout from './SeoAdLayout';
+import SeoLayout from './SeoLayout';
 import SiteFooter from './SiteFooter';
 import {
   getRouteAreaNames,
@@ -19,7 +19,7 @@ export function AreaPage({ areaSlug, schedules, loadingSchedules }) {
 
   return (
     <main className="info-page">
-      <SeoAdLayout>
+      <SeoLayout>
         <section className="info-panel seo-content-panel">
           <p className="info-eyebrow">Cape Town bus area</p>
           <h1>{areaName} bus timetables</h1>
@@ -48,7 +48,7 @@ export function AreaPage({ areaSlug, schedules, loadingSchedules }) {
             />
           )}
         </section>
-      </SeoAdLayout>
+      </SeoLayout>
       <SiteFooter />
     </main>
   );
@@ -60,7 +60,7 @@ export function AreasIndexPage({ schedules, loadingSchedules }) {
 
   return (
     <main className="info-page">
-      <SeoAdLayout>
+      <SeoLayout>
         <section className="info-panel seo-content-panel">
           <p className="info-eyebrow">Cape Town bus areas</p>
           <h1>Cape Town bus areas and stops</h1>
@@ -90,7 +90,7 @@ export function AreasIndexPage({ schedules, loadingSchedules }) {
             </div>
           )}
         </section>
-      </SeoAdLayout>
+      </SeoLayout>
       <SiteFooter />
     </main>
   );

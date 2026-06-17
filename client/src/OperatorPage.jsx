@@ -1,6 +1,6 @@
 import React from 'react';
 import RouteLinkList from './RouteLinkList';
-import SeoAdLayout from './SeoAdLayout';
+import SeoLayout from './SeoLayout';
 import SiteFooter from './SiteFooter';
 import {
   getAgencyDisplayName,
@@ -27,7 +27,7 @@ export default function OperatorPage({ agency, schedules, loadingSchedules }) {
 
   return (
     <main className="info-page">
-      <SeoAdLayout>
+      <SeoLayout>
         <section className="info-panel seo-content-panel">
           <p className="info-eyebrow">Cape Town bus operator</p>
           <h1>{agencyName} bus timetables</h1>
@@ -74,7 +74,7 @@ export default function OperatorPage({ agency, schedules, loadingSchedules }) {
             </>
           )}
         </section>
-      </SeoAdLayout>
+      </SeoLayout>
       <SiteFooter />
     </main>
   );
