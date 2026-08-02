@@ -285,6 +285,14 @@ const buildScheduleData = (payload) => {
   }, {});
 };
 
+const hasTimetableDirections = (payload) => {
+  const normalizedPayload = normalizeTimetablePayload(payload);
+
+  return normalizedPayload.directions.some((direction) =>
+    (direction.trips || []).length > 0 && (direction.rows || []).length > 0
+  );
+};
+
 const getAvailableServiceDays = (scheduleData, selectedDirection) => {
   if (!scheduleData) {
     return [];
@@ -623,17 +631,26 @@ function App() {
       if (cachedTimetable?.data) {
         const cachedTimetablePayload = normalizeTimetablePayload(cachedTimetable.data);
 
-        setTimetablePayload(cachedTimetablePayload);
-        setScheduleData(buildScheduleData(cachedTimetablePayload));
-        setLoadingTimes(false);
-        setTimetableMessage('');
-        await touchTimetable(route.id);
+        if (hasTimetableDirections(cachedTimetablePayload)) {
+          setTimetablePayload(cachedTimetablePayload);
+          setScheduleData(buildScheduleData(cachedTimetablePayload));
+          setLoadingTimes(false);
+          setTimetableMessage('');
+          await touchTimetable(route.id);
+        } else {
+          setTimetablePayload(null);
+          setScheduleData(null);
+        }
       } else {
         setTimetablePayload(null);
         setScheduleData(null);
       }
 
-      if (cachedTimetable?.data && !isCacheStale(cachedTimetable.cachedAt)) {
+      if (
+        cachedTimetable?.data &&
+        hasTimetableDirections(cachedTimetable.data) &&
+        !isCacheStale(cachedTimetable.cachedAt)
+      ) {
         return;
       }
 
@@ -653,6 +670,13 @@ function App() {
         const normalizedPayload = normalizeTimetablePayload(data);
 
         if (ignore) {
+          return;
+        }
+
+        if (!hasTimetableDirections(normalizedPayload)) {
+          setTimetablePayload(null);
+          setScheduleData(null);
+          setTimetableMessage('This timetable is not available yet. Select another route or try again after the latest data refresh is complete.');
           return;
         }
 

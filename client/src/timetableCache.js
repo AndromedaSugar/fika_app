@@ -1,4 +1,4 @@
-const DB_NAME = 'fika-timetable-cache';
+const DB_NAME = 'fika-timetable-cache-v2';
 const DB_VERSION = 1;
 const SCHEDULES_KEY = 'all-schedules';
 const DAY_MS = 24 * 60 * 60 * 1000;
