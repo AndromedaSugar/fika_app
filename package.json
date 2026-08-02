@@ -18,7 +18,7 @@
     "compression": "1.8.1",
     "cors": "^2.8.5",
     "express": "^4.21.1",
-    "express-rate-limit": "8.4.1",
+    "express-rate-limit": "8.6.1",
     "helmet": "8.1.0",
     "pg": "^8.16.3"
   }
