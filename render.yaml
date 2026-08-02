@@ -1,0 +1,16 @@
+services:
+  - type: cron
+    name: fika-gsc-weekly
+    runtime: node
+    schedule: "0 4 * * 1"
+    buildCommand: npm ci
+    startCommand: npm run sync:gsc
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GSC_SITE_URL
+        value: https://www.fika.net.za/
+      - key: DATABASE_URL
+        sync: false
+      - key: GSC_SERVICE_ACCOUNT_JSON
+        sync: false

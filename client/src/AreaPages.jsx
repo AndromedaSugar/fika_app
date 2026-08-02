@@ -3,6 +3,7 @@ import RouteLinkList from './RouteLinkList';
 import SeoLayout from './SeoLayout';
 import SiteFooter from './SiteFooter';
 import {
+  getAgencyDisplayName,
   getRouteAreaNames,
   getRouteLabel,
   slugify,
@@ -16,16 +17,21 @@ export function AreaPage({ areaSlug, schedules, loadingSchedules }) {
       getRouteAreaNames(schedule).some((name) => slugify(name) === areaSlug)
     )
     .sort((first, second) => getRouteLabel(first).localeCompare(getRouteLabel(second)));
+  const operatorGroups = [...new Set(routes.map((route) => route.agency))]
+    .map((agency) => ({ agency, routes: routes.filter((route) => route.agency === agency) }));
+  const pageHeading = areaSlug === 'cape-town'
+    ? 'Cape Town Bus Routes & Times'
+    : `${areaName} Bus Times & Timetables`;
 
   return (
     <main className="info-page">
       <SeoLayout>
         <section className="info-panel seo-content-panel">
           <p className="info-eyebrow">Cape Town bus area</p>
-          <h1>{areaName} bus timetables</h1>
+          <h1>{pageHeading}</h1>
           <p>
-            Find Golden Arrow and MyCiTi routes serving {areaName}. Select a route to view its
-            timetable, stops, directions, and service days.
+            {routes.length} bus routes serve {areaName} on {[...new Set(routes.map((route) => getAgencyDisplayName(route.agency)))].join(' and ') || 'Fika'}.
+            Select a route to view its timetable, stops, directions, and service days.
           </p>
           <p>
             Area pages are built from route names and direction labels in the timetable data. A
@@ -42,10 +48,12 @@ export function AreaPage({ areaSlug, schedules, loadingSchedules }) {
           {loadingSchedules ? (
             <p>Loading routes...</p>
           ) : (
-            <RouteLinkList
-              routes={routes}
-              emptyMessage="No route matches are loaded for this area yet. Use search to find a route."
-            />
+            operatorGroups.length ? operatorGroups.map((group) => (
+              <section key={group.agency} className="seo-route-group">
+                <h3>{getAgencyDisplayName(group.agency)}</h3>
+                <RouteLinkList routes={group.routes} emptyMessage="" />
+              </section>
+            )) : <p>No route matches are loaded for this area yet. Use search to find a route.</p>
           )}
         </section>
       </SeoLayout>

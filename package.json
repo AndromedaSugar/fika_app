@@ -5,10 +5,12 @@
   "scripts": {
     "build": "npm ci --prefix client && npm run build --prefix client",
     "dev": "node server.js",
+    "sync:gsc": "node scripts/sync-search-console.js",
+    "backfill:gsc": "node scripts/sync-search-console.js --start=2026-06-15",
     "precompute:api-cache": "node scripts/precompute-api-cache.js",
     "start": "node scripts/precompute-api-cache.js --soft-fail && node server.js",
     "start:server": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",

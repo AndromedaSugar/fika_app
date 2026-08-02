@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   getAgencyDisplayName,
+  getRouteIntentLabel,
   getRouteLabel,
   getTimetablePath,
 } from './routeUtils';
@@ -14,8 +15,8 @@ export default function RouteLinkList({ routes, emptyMessage }) {
     <div className="seo-route-grid">
       {routes.map((schedule) => (
         <a key={schedule.id} href={getTimetablePath(schedule)}>
-          <span>{getRouteLabel(schedule)}</span>
-          <small>{getAgencyDisplayName(schedule.agency)}</small>
+          <span>{getRouteIntentLabel(schedule)}</span>
+          <small>{getRouteLabel(schedule)} · {getAgencyDisplayName(schedule.agency)}</small>
         </a>
       ))}
     </div>

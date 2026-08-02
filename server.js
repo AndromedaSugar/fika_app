@@ -19,6 +19,22 @@ const {
   scheduleTimesQuery,
   schedulesQuery,
 } = require('./lib/apiPayloads');
+const {
+  AGENCY_DISPLAY_NAMES,
+  AGENCY_FROM_SLUG,
+  AGENCY_SLUGS,
+  getAgencyDisplayName,
+  getAgencySlug,
+  getCanonicalTimetablePath,
+  slugify,
+} = require('./lib/routePaths');
+const { resolveTimetableRoute } = require('./lib/routeResolver');
+const {
+  ensureRouteUrlAliasSchema,
+  getRouteUrlAlias,
+  saveRouteUrlAlias,
+} = require('./lib/routeUrlAliases');
+const { createSearchPerformanceHandler } = require('./lib/adminSearchPerformance');
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 4000;
@@ -32,7 +48,7 @@ const CLIENT_BUILD_DIR = path.join(__dirname, 'client', 'build');
 const CLIENT_PUBLIC_DIR = path.join(__dirname, 'client', 'public');
 const INDEX_HTML_PATH = path.join(CLIENT_BUILD_DIR, 'index.html');
 const PUBLIC_INDEX_HTML_PATH = path.join(CLIENT_PUBLIC_DIR, 'index.html');
-const MIN_AREA_ROUTE_COUNT = 2;
+const MIN_AREA_ROUTE_COUNT = 3;
 const MAX_AREA_LINKS = 30;
 const MAX_ROUTE_STOP_LINKS = 24;
 const MAX_ROUTE_STOPS = 36;
@@ -42,6 +58,17 @@ const PUBLIC_API_CACHE_CONTROL = process.env.PUBLIC_API_CACHE_CONTROL || 'public
 const API_RESPONSE_CACHE_ENABLED = process.env.API_RESPONSE_CACHE_ENABLED !== 'false';
 const PG_POOL_MAX = Number(process.env.PG_POOL_MAX) || (IS_PRODUCTION ? 5 : 10);
 const REQUEST_LOGGING_ENABLED = process.env.REQUEST_LOGGING_ENABLED !== 'false';
+const PRIORITY_AREA_SLUGS = new Set([
+  'atlantis',
+  'mamre',
+  'claremont',
+  'khayelitsha',
+  'cape-town',
+  'delft',
+  'bellville',
+  'heideveld',
+]);
+const PRIORITY_AREA_ORDER = [...PRIORITY_AREA_SLUGS];
 const DEV_REQUEST_IPS = new Set(
   (process.env.DEV_REQUEST_IPS || '')
     .split(',')
@@ -508,19 +535,6 @@ async function sendApiPayload(req, res, { cacheKey, loadPayload }) {
   });
 }
 
-const AGENCY_DISPLAY_NAMES = {
-  GABS: 'Golden Arrow',
-  MyCiti: 'MyCiTi',
-};
-const AGENCY_SLUGS = {
-  GABS: 'golden-arrow',
-  MyCiti: 'myciti',
-};
-const AGENCY_FROM_SLUG = Object.entries(AGENCY_SLUGS).reduce((result, [agency, slug]) => {
-  result[slug] = agency;
-  return result;
-}, {});
-
 const HOME_TITLE = 'Fika Timetables | Cape Town Bus Timetables';
 const HOME_DESCRIPTION = 'Search Cape Town bus timetables for Golden Arrow and MyCiTi routes. Fika helps commuters find route times quickly, with more South African cities and provinces planned.';
 const OPERATOR_COPY = {
@@ -589,24 +603,6 @@ const INFO_PAGES = {
   },
 };
 
-function getAgencyDisplayName(agency) {
-  return AGENCY_DISPLAY_NAMES[agency] || agency;
-}
-
-function getAgencySlug(agency) {
-  return AGENCY_SLUGS[agency] || slugify(agency);
-}
-
-function slugify(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'route';
-}
-
 function getRouteLabel(route) {
   return route.code ? `${route.code} - ${route.name}` : route.name;
 }
@@ -620,10 +616,16 @@ function normalizeDirectionName(direction) {
 }
 
 function cleanAreaName(value) {
-  return String(value || '')
+  const cleanedName = String(value || '')
     .replace(/\((?:anti-?clockwise|clockwise)\)/ig, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+  if (/^mamre\s*\((?:crown|frans)\)$/i.test(cleanedName)) {
+    return 'Mamre';
+  }
+
+  return cleanedName;
 }
 
 function formatAreaName(value) {
@@ -631,6 +633,68 @@ function formatAreaName(value) {
     .toLowerCase()
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
     .replace(/\bSap\b/g, 'SAP');
+}
+
+function formatDisplayName(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .replace(/\bCbd\b/g, 'CBD')
+    .replace(/\bSap\b/g, 'SAP');
+}
+
+function getRouteEndpoints(route) {
+  const parts = String(route.name || '')
+    .split(/\s+-\s+/)
+    .map(formatDisplayName)
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    return [parts[0], parts[parts.length - 1]];
+  }
+
+  const directions = getRouteDirections(route)
+    .map(normalizeDirectionName)
+    .map(formatDisplayName)
+    .filter(Boolean);
+
+  return directions.length >= 2 ? [directions[0], directions[1]] : [formatDisplayName(route.name)];
+}
+
+function getRouteIntentLabel(route) {
+  const agencyName = getAgencyDisplayName(route.agency);
+  const code = route.code ? ` ${route.code}` : '';
+  const endpoints = getRouteEndpoints(route).join(' to ');
+  return `${agencyName}${code} ${endpoints} bus times`.replace(/\s+/g, ' ').trim();
+}
+
+function getRouteSeoTitle(route) {
+  const agencyName = getAgencyDisplayName(route.agency);
+  const code = route.code ? ` ${route.code}` : '';
+  const endpoints = getRouteEndpoints(route).join('–');
+  return `${agencyName}${code} ${endpoints} Bus Times`.replace(/\s+/g, ' ').trim();
+}
+
+function formatEffectiveDate(value) {
+  if (!value) {
+    return '';
+  }
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return '';
+    }
+    return [
+      value.getFullYear(),
+      String(value.getMonth() + 1).padStart(2, '0'),
+      String(value.getDate()).padStart(2, '0'),
+    ].join('-');
+  }
+
+  const dateOnlyMatch = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return dateOnlyMatch ? dateOnlyMatch[1] : '';
 }
 
 function getAreaNamesForRoute(route) {
@@ -641,10 +705,6 @@ function getAreaNamesForRoute(route) {
   return [...new Set([...routeParts, ...directionParts]
     .map(cleanAreaName)
     .filter((value) => value.length >= 3))];
-}
-
-function getCanonicalTimetablePath(route) {
-  return `/timetables/${getAgencySlug(route.agency)}/${route.id}-${slugify(route.name)}`;
 }
 
 function getCanonicalOperatorPath(agency) {
@@ -701,8 +761,8 @@ function getHomepageJsonLd() {
   ];
 }
 
-function getTimetableJsonLd(route, canonicalPath) {
-  const routeLabel = getRouteLabel(route);
+function getTimetableJsonLd(route, canonicalPath, serviceWindow, stops) {
+  const routeLabel = getRouteIntentLabel(route);
   const agencyName = getAgencyDisplayName(route.agency);
   const canonicalUrl = getAbsoluteUrl(canonicalPath);
 
@@ -710,9 +770,9 @@ function getTimetableJsonLd(route, canonicalPath) {
     {
       '@context': 'https://schema.org',
       '@type': 'WebPage',
-      name: `${routeLabel} Timetable | Fika`,
+      name: routeLabel,
       url: canonicalUrl,
-      description: getTimetableDescription(route),
+      description: getTimetableDescription(route, serviceWindow, stops),
       isPartOf: {
         '@type': 'WebSite',
         name: 'Fika Timetables',
@@ -746,8 +806,8 @@ function getTimetableJsonLd(route, canonicalPath) {
     {
       '@context': 'https://schema.org',
       '@type': 'Dataset',
-      name: `${agencyName} ${routeLabel} bus timetable`,
-      description: getTimetableDescription(route),
+      name: routeLabel,
+      description: getTimetableDescription(route, serviceWindow, stops),
       url: canonicalUrl,
       spatialCoverage: {
         '@type': 'Place',
@@ -779,18 +839,22 @@ function getBreadcrumbJsonLd(items) {
   };
 }
 
-function getTimetableDescription(route, serviceWindow) {
+function getTimetableDescription(route, serviceWindow, stops = []) {
   const agencyName = getAgencyDisplayName(route.agency);
-  const routeLabel = getRouteLabel(route);
-  const directions = getRouteDirections(route);
-  const directionText = directions.length
-    ? `, including trips to ${directions.join(' and ')}`
-    : '';
+  const codeText = route.code ? ` route ${route.code}` : '';
+  const endpoints = getRouteEndpoints(route);
+  const corridorText = endpoints.length >= 2
+    ? ` from ${endpoints[0]} to ${endpoints[1]}`
+    : ` for ${endpoints[0] || formatDisplayName(route.name)}`;
+  const stopCount = new Set(stops.map((stop) => cleanAreaName(stop.name)).filter(Boolean)).size;
   const timeText = serviceWindow?.first_time && serviceWindow?.last_time
-    ? ` First listed trips run from ${formatTime(serviceWindow.first_time)} to ${formatTime(serviceWindow.last_time)}.`
+    ? ` Listed times run from ${formatTime(serviceWindow.first_time)} to ${formatTime(serviceWindow.last_time)}`
     : '';
+  const stopText = stopCount ? ` across ${stopCount} stops and listed service days` : ' with stops and listed service days';
+  const effectiveDate = formatEffectiveDate(route.effective_date);
+  const effectiveText = effectiveDate ? ` Effective ${effectiveDate}.` : '';
 
-  return `View the ${agencyName} ${routeLabel} bus timetable in Cape Town${directionText}. Find route times quickly on Fika.${timeText}`;
+  return `${agencyName}${codeText}${corridorText}.${timeText}${stopText}.${effectiveText}`;
 }
 
 function getHomepageSeo() {
@@ -799,6 +863,18 @@ function getHomepageSeo() {
     description: HOME_DESCRIPTION,
     canonicalUrl: SITE_URL,
     jsonLd: getHomepageJsonLd(),
+  };
+}
+
+function getNotFoundSeo(requestPath, title, description) {
+  const canonicalUrl = getAbsoluteUrl(requestPath);
+
+  return {
+    title,
+    description,
+    canonicalUrl,
+    robots: 'noindex,follow',
+    jsonLd: [],
   };
 }
 
@@ -867,13 +943,22 @@ function getOperatorSeo(agency) {
 function getAreaSeo(area) {
   const canonicalPath = getCanonicalAreaPath(area.name);
   const canonicalUrl = getAbsoluteUrl(canonicalPath);
-  const title = `${area.name} Bus Timetables | Cape Town`;
-  const description = `Find Cape Town bus routes and timetables serving ${area.name}, including Golden Arrow and MyCiTi services where available.`;
+  const title = area.slug === 'cape-town'
+    ? 'Cape Town Bus Routes & Times | Fika'
+    : `${area.name} Bus Times & Timetables | Cape Town`;
+  const operators = [...new Set(area.routes.map((route) => getAgencyDisplayName(route.agency)))];
+  const destinations = [...new Set(area.routes
+    .flatMap(getRouteEndpoints)
+    .filter((name) => slugify(name) !== area.slug))]
+    .slice(0, 3);
+  const destinationText = destinations.length ? ` Popular links include ${destinations.join(', ')}.` : '';
+  const description = `${area.routes.length} bus routes serve ${area.name} on ${operators.join(' and ')}.${destinationText}`;
 
   return {
     title,
     description,
     canonicalUrl,
+    robots: area.indexable ? 'index,follow' : 'noindex,follow',
     jsonLd: [
       {
         '@context': 'https://schema.org',
@@ -930,16 +1015,15 @@ function getAreasSeo() {
   };
 }
 
-function getTimetableSeo(route, serviceWindow) {
+function getTimetableSeo(route, serviceWindow, stops) {
   const canonicalPath = getCanonicalTimetablePath(route);
-  const agencyName = getAgencyDisplayName(route.agency);
-  const routeLabel = getRouteLabel(route);
+  const title = getRouteSeoTitle(route);
 
   return {
-    title: `${agencyName} ${routeLabel} Timetable | Fika`,
-    description: getTimetableDescription(route, serviceWindow),
+    title,
+    description: getTimetableDescription(route, serviceWindow, stops),
     canonicalUrl: getAbsoluteUrl(canonicalPath),
-    jsonLd: getTimetableJsonLd(route, canonicalPath),
+    jsonLd: getTimetableJsonLd(route, canonicalPath, serviceWindow, stops),
   };
 }
 
@@ -961,11 +1045,13 @@ function renderIndexHtml(seo, bodyHtml = '') {
   const title = escapeHtml(seo.title);
   const description = escapeHtml(seo.description);
   const canonicalUrl = escapeHtml(seo.canonicalUrl);
+  const robots = escapeHtml(seo.robots || 'index,follow');
   const jsonLd = serializeJsonLd(seo.jsonLd);
 
   html = replaceOrInsertHeadTag(html, /<title[^>]*>.*?<\/title>/i, `<title>${title}</title>`);
   html = replaceOrInsertHeadTag(html, /<meta\s+name="description"[^>]*>/i, `<meta name="description" content="${description}" />`);
   html = replaceOrInsertHeadTag(html, /<link\s+rel="canonical"[^>]*>/i, `<link rel="canonical" href="${canonicalUrl}" />`);
+  html = replaceOrInsertHeadTag(html, /<meta\s+name="robots"[^>]*>/i, `<meta name="robots" content="${robots}" />`);
   html = replaceOrInsertHeadTag(html, /<meta\s+property="og:title"[^>]*>/i, `<meta property="og:title" content="${title}" />`);
   html = replaceOrInsertHeadTag(html, /<meta\s+property="og:description"[^>]*>/i, `<meta property="og:description" content="${description}" />`);
   html = replaceOrInsertHeadTag(html, /<meta\s+property="og:url"[^>]*>/i, `<meta property="og:url" content="${canonicalUrl}" />`);
@@ -979,10 +1065,84 @@ function renderIndexHtml(seo, bodyHtml = '') {
   return html;
 }
 
+function sendNotFound(req, res, { title, description, eyebrow = 'Not found' }) {
+  res.set('X-Robots-Tag', 'noindex, follow');
+  res.status(404).send(renderIndexHtml(
+    getNotFoundSeo(req.path, title, description),
+    renderSeoShell({ eyebrow, title, description })
+  ));
+}
+
 async function getRouteById(routeId) {
   const { rows } = await pool.query(routeByIdQuery, [routeId]);
   return rows[0];
 }
+
+async function getRouteByAgencyAndCode(agency, routeCode) {
+  const { rows } = await pool.query(`
+    SELECT
+      routes.id,
+      routes.name,
+      routes.code,
+      routes.agency,
+      routes.effective_date,
+      directions.id AS direction_id,
+      directions.direction
+    FROM routes
+    LEFT JOIN directions ON directions.route_id = routes.id
+    WHERE routes.agency = $1
+      AND lower(routes.code) = lower($2)
+    ORDER BY directions.id;
+  `, [agency, routeCode]);
+
+  if (!rows.length) {
+    return null;
+  }
+
+  return {
+    id: rows[0].id,
+    name: rows[0].name,
+    code: rows[0].code,
+    agency: rows[0].agency,
+    effective_date: rows[0].effective_date,
+    direction_1: rows[0]?.direction,
+    direction_2: rows[1]?.direction,
+  };
+}
+
+let routeUrlAliasSchemaPromise = null;
+
+async function ensureRouteAliases() {
+  if (!routeUrlAliasSchemaPromise) {
+    routeUrlAliasSchemaPromise = ensureRouteUrlAliasSchema(pool).catch((error) => {
+      routeUrlAliasSchemaPromise = null;
+      throw error;
+    });
+  }
+
+  return routeUrlAliasSchemaPromise;
+}
+
+const timetableRouteRepository = {
+  getByAgencyAndCode: getRouteByAgencyAndCode,
+  getById: getRouteById,
+  async getAlias(legacyPath) {
+    await ensureRouteAliases();
+    return getRouteUrlAlias(pool, legacyPath);
+  },
+  async saveAlias(alias) {
+    await ensureRouteAliases();
+    return saveRouteUrlAlias(pool, alias);
+  },
+  async findUniqueByNameSlug(agency, nameSlug) {
+    const { routes } = await getSeoData();
+    const matches = routes.filter((route) =>
+      route.agency === agency && slugify(route.name) === nameSlug
+    );
+
+    return matches.length === 1 ? matches[0] : null;
+  },
+};
 
 async function getAllRoutes() {
   const { rows } = await pool.query(schedulesQuery);
@@ -1057,8 +1217,23 @@ function finalizeAreas(areaMap) {
         getRouteLabel(first).localeCompare(getRouteLabel(second))
       ),
     }))
-    .filter((area) => area.routes.length >= MIN_AREA_ROUTE_COUNT)
+    .map((area) => ({
+      ...area,
+      indexable: area.routes.length >= MIN_AREA_ROUTE_COUNT || PRIORITY_AREA_SLUGS.has(area.slug),
+    }))
     .sort((first, second) => first.name.localeCompare(second.name));
+}
+
+function getFeaturedAreas(areas, limit = MAX_AREA_LINKS) {
+  return [...areas]
+    .sort((first, second) => {
+      const firstPriority = PRIORITY_AREA_ORDER.indexOf(first.slug);
+      const secondPriority = PRIORITY_AREA_ORDER.indexOf(second.slug);
+      const firstRank = firstPriority === -1 ? Number.MAX_SAFE_INTEGER : firstPriority;
+      const secondRank = secondPriority === -1 ? Number.MAX_SAFE_INTEGER : secondPriority;
+      return firstRank - secondRank || second.routes.length - first.routes.length || first.name.localeCompare(second.name);
+    })
+    .slice(0, limit);
 }
 
 async function buildSeoData() {
@@ -1121,8 +1296,24 @@ function renderRouteLinks(routes, className = 'seo-link-list') {
   }
 
   return `<ul class="${className}">${routes.map((route) => (
-    `<li><a href="${escapeHtml(getCanonicalTimetablePath(route))}">${escapeHtml(getAgencyDisplayName(route.agency))} ${escapeHtml(getRouteLabel(route))}</a></li>`
+    `<li><a href="${escapeHtml(getCanonicalTimetablePath(route))}">${escapeHtml(getRouteIntentLabel(route))}</a></li>`
   )).join('')}</ul>`;
+}
+
+function renderRoutesByOperator(routes) {
+  return Object.keys(AGENCY_SLUGS)
+    .map((agency) => ({
+      agency,
+      routes: routes.filter((route) => route.agency === agency),
+    }))
+    .filter((group) => group.routes.length)
+    .map((group) => `
+      <section class="seo-route-group">
+        <h3>${escapeHtml(getAgencyDisplayName(group.agency))}</h3>
+        ${renderRouteLinks(group.routes)}
+      </section>
+    `)
+    .join('');
 }
 
 function renderAreaLinks(areas, className = 'seo-link-list') {
@@ -1160,6 +1351,7 @@ function renderRouteFacts(route, stops, serviceWindow) {
   const stopCount = new Set(stops.map((stop) => cleanAreaName(stop.name)).filter(Boolean)).size;
   const firstTrip = formatTime(serviceWindow?.first_time) || 'Not listed';
   const lastTrip = formatTime(serviceWindow?.last_time) || 'Not listed';
+  const effectiveDate = formatEffectiveDate(route.effective_date) || 'Not supplied';
 
   return `
     <dl class="seo-fact-list">
@@ -1169,6 +1361,7 @@ function renderRouteFacts(route, stops, serviceWindow) {
       <div><dt>Listed stops</dt><dd>${stopCount || 'Stop count unavailable'}</dd></div>
       <div><dt>First listed trip</dt><dd>${escapeHtml(firstTrip)}</dd></div>
       <div><dt>Last listed trip</dt><dd>${escapeHtml(lastTrip)}</dd></div>
+      <div><dt>Effective date</dt><dd>${escapeHtml(effectiveDate)}</dd></div>
     </dl>
   `;
 }
@@ -1260,7 +1453,7 @@ function renderHomeBody(routes = [], areas = []) {
         paragraphs: [
           'Area pages group route names and direction labels into place-based timetable collections for easier local discovery.',
         ],
-        html: renderAreaLinks(areas.slice(0, MAX_AREA_LINKS)),
+        html: renderAreaLinks(getFeaturedAreas(areas)),
       },
     ],
   });
@@ -1305,10 +1498,12 @@ function renderOperatorBody(agency, routes, areas) {
 }
 
 function renderAreaBody(area) {
+  const seo = getAreaSeo(area);
+
   return renderSeoShell({
     eyebrow: 'Cape Town bus area',
-    title: `${area.name} bus timetables`,
-    description: `Find bus routes serving ${area.name} in Cape Town. View Golden Arrow and MyCiTi timetables by route, stop, and direction where available.`,
+    title: seo.title.replace(/\s*\|.*$/, ''),
+    description: seo.description,
     sections: [
       {
         title: 'Area Timetable Notes',
@@ -1323,7 +1518,7 @@ function renderAreaBody(area) {
         paragraphs: [
           `${area.routes.length} route timetable${area.routes.length === 1 ? '' : 's'} are currently associated with ${area.name}.`,
         ],
-        html: renderRouteLinks(area.routes),
+        html: renderRoutesByOperator(area.routes),
       },
     ],
   });
@@ -1369,8 +1564,8 @@ function renderTimetableBody(route, stops, serviceWindow, relatedRoutes, indexed
     .slice(0, MAX_ROUTE_STOP_LINKS);
   return renderSeoShell({
     eyebrow: `${agencyName} timetable`,
-    title: `${agencyName} ${routeLabel} bus timetable`,
-    description: getTimetableDescription(route, serviceWindow),
+    title: getRouteSeoTitle(route),
+    description: getTimetableDescription(route, serviceWindow, stops),
     sections: [
       {
         title: 'Timetable Summary',
@@ -1422,6 +1617,41 @@ function getRelatedRoutes(route, allRoutes) {
     .sort((first, second) => second.score - first.score || getRouteLabel(first.route).localeCompare(getRouteLabel(second.route)))
     .slice(0, 12)
     .map((candidate) => candidate.route);
+}
+
+function buildSitemapXml(routes, areas) {
+  const urls = [
+    { loc: SITE_URL },
+    ...Object.values(AGENCY_SLUGS).map((slug) => ({
+      loc: getAbsoluteUrl(`/operators/${slug}`),
+    })),
+    ...Object.keys(INFO_PAGES).map((pagePath) => ({
+      loc: getAbsoluteUrl(pagePath),
+    })),
+    { loc: getAbsoluteUrl('/areas') },
+    ...routes.map((route) => ({
+      loc: getAbsoluteUrl(getCanonicalTimetablePath(route)),
+      lastmod: formatEffectiveDate(route.effective_date),
+    })),
+    ...areas.filter((area) => area.indexable).map((area) => ({
+      loc: getAbsoluteUrl(getCanonicalAreaPath(area.name)),
+      lastmod: area.routes
+        .map((route) => formatEffectiveDate(route.effective_date))
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0],
+    })),
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    urls.map((url) => (
+      `  <url>\n` +
+      `    <loc>${escapeXml(url.loc)}</loc>\n` +
+      (url.lastmod ? `    <lastmod>${escapeXml(url.lastmod)}</lastmod>\n` : '') +
+      `  </url>`
+    )).join('\n') +
+    `\n</urlset>\n`;
 }
 
 app.get('/schedules', async (req, res) => {
@@ -1485,48 +1715,18 @@ app.get('/healthz/db', async (req, res) => {
   }
 });
 
+app.get('/admin/search-performance', createSearchPerformanceHandler({
+  database: pool,
+  username: process.env.SEO_REPORT_USERNAME,
+  password: process.env.SEO_REPORT_PASSWORD,
+}));
+
 app.get('/sitemap.xml', async (req, res) => {
   const startedAt = Date.now();
 
   try {
     const { routes, areas } = await getSeoData();
-    const urls = [
-      {
-        loc: SITE_URL,
-        priority: '1.0',
-      },
-      ...Object.values(AGENCY_SLUGS).map((slug) => ({
-        loc: getAbsoluteUrl(`/operators/${slug}`),
-        priority: '0.9',
-      })),
-      ...Object.keys(INFO_PAGES).map((pagePath) => ({
-        loc: getAbsoluteUrl(pagePath),
-        priority: '0.5',
-      })),
-      {
-        loc: getAbsoluteUrl('/areas'),
-        priority: '0.7',
-      },
-      ...routes.map((route) => ({
-        loc: getAbsoluteUrl(getCanonicalTimetablePath(route)),
-        priority: '0.8',
-      })),
-      ...areas.map((area) => ({
-        loc: getAbsoluteUrl(getCanonicalAreaPath(area.name)),
-        priority: '0.7',
-      })),
-    ];
-
-    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n` +
-      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-      urls.map((url) => (
-        `  <url>\n` +
-        `    <loc>${escapeXml(url.loc)}</loc>\n` +
-        `    <changefreq>weekly</changefreq>\n` +
-        `    <priority>${url.priority}</priority>\n` +
-        `  </url>`
-      )).join('\n') +
-      `\n</urlset>\n`;
+    const sitemap = buildSitemapXml(routes, areas);
 
     logSlowSeoRender('GET /sitemap.xml', startedAt);
     res.type('application/xml').send(sitemap);
@@ -1573,19 +1773,10 @@ app.get('/operators/:agencySlug', async (req, res) => {
   const agency = AGENCY_FROM_SLUG[req.params.agencySlug];
 
   if (!agency) {
-    res.status(404).send(renderIndexHtml(getHomepageSeo(), renderSeoShell({
-      eyebrow: 'Not found',
+    sendNotFound(req, res, {
       title: 'Operator not found',
       description: 'Select Golden Arrow or MyCiTi to view available Cape Town bus timetables.',
-      sections: [
-        {
-          title: 'Available operators',
-          html: `<ul class="seo-link-list">${Object.keys(AGENCY_SLUGS).map((operator) => (
-            `<li><a href="${escapeHtml(getCanonicalOperatorPath(operator))}">${escapeHtml(getAgencyDisplayName(operator))} timetables</a></li>`
-          )).join('')}</ul>`,
-        },
-      ],
-    })));
+    });
     return;
   }
 
@@ -1622,11 +1813,10 @@ app.get('/areas/:areaSlug', async (req, res) => {
     const area = areaBySlug.get(req.params.areaSlug);
 
     if (!area) {
-      res.status(404).send(renderIndexHtml(getHomepageSeo(), renderSeoShell({
-        eyebrow: 'Not found',
+      sendNotFound(req, res, {
         title: 'Area not found',
         description: 'This Cape Town bus area is not available yet. Search Fika Timetables for MyCiTi and Golden Arrow routes.',
-      })));
+      });
       return;
     }
 
@@ -1638,6 +1828,9 @@ app.get('/areas/:areaSlug', async (req, res) => {
     }
 
     logSlowSeoRender(`GET /areas/${req.params.areaSlug}`, startedAt);
+    if (!area.indexable) {
+      res.set('X-Robots-Tag', 'noindex, follow');
+    }
     res.send(renderIndexHtml(getAreaSeo(area), renderAreaBody(area)));
   } catch (error) {
     console.error('Error rendering area page', error);
@@ -1647,38 +1840,31 @@ app.get('/areas/:areaSlug', async (req, res) => {
 
 app.get('/timetables/:agency/:routeSlug', async (req, res) => {
   const startedAt = Date.now();
-  const routeIdMatch = req.params.routeSlug.match(/^(\d+)(?:-|$)/);
-
-  if (!routeIdMatch) {
-    res.status(404).send(renderIndexHtml(getHomepageSeo(), renderSeoShell({
-      eyebrow: 'Not found',
-      title: 'Timetable not found',
-      description: 'This timetable URL is not available. Search Fika Timetables for MyCiTi and Golden Arrow routes.',
-    })));
-    return;
-  }
 
   try {
-    const [route, seoData] = await Promise.all([
-      getRouteById(routeIdMatch[1]),
+    const [resolution, seoData] = await Promise.all([
+      resolveTimetableRoute({
+        agencySlug: req.params.agency,
+        routeSlug: req.params.routeSlug,
+        requestPath: req.path,
+      }, timetableRouteRepository),
       getSeoData(),
     ]);
 
-    if (!route) {
-      res.status(404).send(renderIndexHtml(getHomepageSeo(), renderSeoShell({
-        eyebrow: 'Not found',
+    if (resolution.status === 'not-found') {
+      sendNotFound(req, res, {
         title: 'Timetable not found',
         description: 'This timetable URL is not available. Search Fika Timetables for MyCiTi and Golden Arrow routes.',
-      })));
+      });
       return;
     }
 
-    const canonicalPath = getCanonicalTimetablePath(route);
-
-    if (req.path !== canonicalPath) {
-      res.redirect(301, canonicalPath);
+    if (resolution.status === 'redirect') {
+      res.redirect(301, resolution.canonicalPath);
       return;
     }
+
+    const route = resolution.route;
 
     const [stops, serviceWindow] = await Promise.all([
       getRouteStops(route.id),
@@ -1688,7 +1874,7 @@ app.get('/timetables/:agency/:routeSlug', async (req, res) => {
 
     logSlowSeoRender(`GET /timetables/${req.params.agency}/${req.params.routeSlug}`, startedAt);
     res.send(renderIndexHtml(
-      getTimetableSeo(route, serviceWindow),
+      getTimetableSeo(route, serviceWindow, stops),
       renderTimetableBody(route, stops, serviceWindow, relatedRoutes, seoData.areas)
     ));
   } catch (error) {
@@ -1700,9 +1886,39 @@ app.get('/timetables/:agency/:routeSlug', async (req, res) => {
 app.use(express.static(CLIENT_BUILD_DIR, { index: false }));
 
 app.get('*', (req, res) => {
-  res.send(renderIndexHtml(getHomepageSeo()));
+  sendNotFound(req, res, {
+    title: 'Page not found',
+    description: 'This Fika Timetables page is not available. Browse Golden Arrow and MyCiTi routes from the homepage.',
+  });
 });
 
-app.listen(PORT, () => {
-  console.log(`Fika server listening on port ${PORT}`);
-});
+async function startServer() {
+  await ensureRouteAliases();
+  return app.listen(PORT, () => {
+    console.log(`Fika server listening on port ${PORT}`);
+  });
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error('Unable to initialize Fika database schema', error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  app,
+  buildSitemapXml,
+  cleanAreaName,
+  finalizeAreas,
+  formatEffectiveDate,
+  getAreaNamesForRoute,
+  getAreaSeo,
+  getCanonicalAreaPath,
+  getFeaturedAreas,
+  getRouteSeoTitle,
+  getTimetableDescription,
+  getTimetableSeo,
+  renderIndexHtml,
+  startServer,
+};

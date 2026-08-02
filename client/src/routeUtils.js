@@ -32,13 +32,24 @@ export const getTimetablePath = (route) => {
     return '/';
   }
 
-  return `/timetables/${getAgencySlug(route.agency)}/${route.id}-${slugify(route.name)}`;
+  return `/timetables/${getAgencySlug(route.agency)}/route-${slugify(route.code)}-${slugify(route.name)}`;
 };
 
-export const getRouteIdFromPath = (pathname) => {
-  const match = pathname.match(/^\/timetables\/[^/]+\/(\d+)(?:-|$)/);
-  return match ? Number(match[1]) : null;
+export const getRouteLocatorFromPath = (pathname) => {
+  const canonicalMatch = pathname.match(/^\/timetables\/([^/]+)\/route-([a-z0-9]+)(?:-|$)/i);
+
+  if (canonicalMatch) {
+    return {
+      agency: AGENCY_FROM_SLUG[canonicalMatch[1].toLowerCase()] || null,
+      code: canonicalMatch[2],
+    };
+  }
+
+  const legacyMatch = pathname.match(/^\/timetables\/[^/]+\/(\d+)(?:-|$)/);
+  return legacyMatch ? { id: Number(legacyMatch[1]) } : null;
 };
+
+export const getRouteIdFromPath = (pathname) => getRouteLocatorFromPath(pathname)?.id || null;
 
 export const getOperatorAgencyFromPath = (pathname) => {
   const match = pathname.match(/^\/operators\/([^/]+)$/);
@@ -82,10 +93,41 @@ export const titleizeSlug = (slug) => String(slug || '')
   .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
   .join(' ');
 
-export const cleanAreaName = (value) => String(value || '')
-  .replace(/\((?:anti-?clockwise|clockwise)\)/ig, '')
+export const cleanAreaName = (value) => {
+  const cleanedName = String(value || '')
+    .replace(/\((?:anti-?clockwise|clockwise)\)/ig, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return /^mamre\s*\((?:crown|frans)\)$/i.test(cleanedName) ? 'Mamre' : cleanedName;
+};
+
+export const formatRoutePlace = (value) => String(value || '')
   .replace(/\s+/g, ' ')
-  .trim();
+  .trim()
+  .toLowerCase()
+  .replace(/\b\w/g, (letter) => letter.toUpperCase())
+  .replace(/\bCbd\b/g, 'CBD')
+  .replace(/\bSap\b/g, 'SAP');
+
+export const getRouteEndpoints = (route) => {
+  const parts = String(route?.name || '').split(/\s+-\s+/).map(formatRoutePlace).filter(Boolean);
+  return parts.length >= 2 ? [parts[0], parts[parts.length - 1]] : parts;
+};
+
+export const getRouteIntentLabel = (route) => {
+  const code = route?.code ? ` ${route.code}` : '';
+  return `${getAgencyDisplayName(route?.agency)}${code} ${getRouteEndpoints(route).join(' to ')} bus times`
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+export const getRouteSeoTitle = (route) => {
+  const code = route?.code ? ` ${route.code}` : '';
+  return `${getAgencyDisplayName(route?.agency)}${code} ${getRouteEndpoints(route).join('–')} Bus Times`
+    .replace(/\s+/g, ' ')
+    .trim();
+};
 
 export const getRouteAreaNames = (route) => {
   const routeParts = String(route?.name || '').split(/\s+-\s+/);

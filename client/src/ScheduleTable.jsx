@@ -1,5 +1,5 @@
 import React from 'react';
-import { getAgencyDisplayName } from './routeUtils';
+import { getAgencyDisplayName, getRouteSeoTitle } from './routeUtils';
 
 const SERVICE_DAYS = [
   { key: 'monday', short: 'Mon' },
@@ -92,7 +92,7 @@ const ScheduleTable = ({
     return (
       <div className='schedule-table'>
         <div className='route-title'>
-          <h1>{route ? `${getAgencyDisplayName(route.agency)}: ${route.name}` : 'Timetable'}</h1>
+          <h1>{route ? getRouteSeoTitle(route) : 'Timetable'}</h1>
         </div>
         <p>Loading schedule data...</p>
       </div>
@@ -112,7 +112,7 @@ const ScheduleTable = ({
   return (
     <div className='schedule-table'>
       <div className='route-title'>
-        <h1>{route ? `${agencyName}: ${route.name}` : 'Table'}</h1>
+        <h1>{route ? getRouteSeoTitle(route) : 'Table'}</h1>
         {route && onSaveOfflineChange && (
           <label className="save-offline-toggle">
             <input

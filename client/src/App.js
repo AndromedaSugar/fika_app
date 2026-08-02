@@ -14,7 +14,8 @@ import {
   getRouteAreaNames,
   getRouteCountLabel,
   getRouteDirections,
-  getRouteIdFromPath,
+  getRouteSeoTitle,
+  getRouteLocatorFromPath,
   getTimetablePath,
   isAreasIndexPath,
   normalizeDirectionLabel,
@@ -43,6 +44,16 @@ const SERVICE_DAYS = [
 ];
 
 const FEATURED_AREA_LIMIT = 10;
+const SEARCH_PRIORITY_AREA_SLUGS = [
+  'atlantis',
+  'mamre',
+  'claremont',
+  'khayelitsha',
+  'cape-town',
+  'delft',
+  'bellville',
+  'heideveld',
+];
 const AREA_LABEL_OVERRIDES = {
   bluedowns: 'Blue Downs',
 };
@@ -52,12 +63,12 @@ const LOCAL_API_BASE_URL = `http://localhost:${LOCAL_API_PORT}`;
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL ||
   (process.env.NODE_ENV === 'production' ? '' : LOCAL_API_BASE_URL);
 
-const getInitialRouteId = () => {
+const getInitialRouteLocator = () => {
   if (typeof window === 'undefined') {
     return null;
   }
 
-  return getRouteIdFromPath(window.location.pathname);
+  return getRouteLocatorFromPath(window.location.pathname);
 };
 
 const getCurrentPath = () => {
@@ -322,9 +333,16 @@ const getFeaturedAreaLinks = (schedules) => {
       label: AREA_LABEL_OVERRIDES[areaSlug] || titleizeSlug(areaSlug),
       routeCount,
     }))
-    .sort((first, second) =>
-      second.routeCount - first.routeCount || first.label.localeCompare(second.label)
-    )
+    .sort((first, second) => {
+      const firstPriority = SEARCH_PRIORITY_AREA_SLUGS.indexOf(first.areaSlug);
+      const secondPriority = SEARCH_PRIORITY_AREA_SLUGS.indexOf(second.areaSlug);
+      const firstRank = firstPriority === -1 ? Number.MAX_SAFE_INTEGER : firstPriority;
+      const secondRank = secondPriority === -1 ? Number.MAX_SAFE_INTEGER : secondPriority;
+
+      return firstRank - secondRank ||
+        second.routeCount - first.routeCount ||
+        first.label.localeCompare(second.label);
+    })
     .slice(0, FEATURED_AREA_LIMIT);
 };
 
@@ -509,7 +527,7 @@ function App() {
   const [hasOpenedTimetableView, setHasOpenedTimetableView] = useState(false);
   const [timetableMessage, setTimetableMessage] = useState('');
   const [routeSavedOffline, setRouteSavedOffline] = useState(false);
-  const [requestedRouteId, setRequestedRouteId] = useState(getInitialRouteId);
+  const [requestedRouteLocator, setRequestedRouteLocator] = useState(getInitialRouteLocator);
   const [currentPath, setCurrentPath] = useState(getCurrentPath);
 
   const clearTimetableSelection = ({ showWorkspace = false, message = '' } = {}) => {
@@ -529,7 +547,11 @@ function App() {
       return;
     }
 
-    setRequestedRouteId(Number(selectedRoute.id));
+    setRequestedRouteLocator({
+      id: Number(selectedRoute.id),
+      agency: selectedRoute.agency,
+      code: selectedRoute.code,
+    });
     setRoute(selectedRoute);
     setSelectedAgency(selectedRoute.agency);
     setSelectedDirection(getRouteDirections(selectedRoute)[0] || '');
@@ -586,10 +608,10 @@ function App() {
   useEffect(() => {
     const handlePopState = () => {
       setCurrentPath(window.location.pathname);
-      const nextRouteId = getRouteIdFromPath(window.location.pathname);
-      setRequestedRouteId(nextRouteId);
+      const nextRouteLocator = getRouteLocatorFromPath(window.location.pathname);
+      setRequestedRouteLocator(nextRouteLocator);
 
-      if (!nextRouteId) {
+      if (!nextRouteLocator) {
         clearTimetableSelection();
       }
     };
@@ -602,11 +624,18 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!requestedRouteId || !schedules.length) {
+    if (!requestedRouteLocator || !schedules.length) {
       return;
     }
 
-    const requestedRoute = schedules.find((schedule) => Number(schedule.id) === requestedRouteId);
+    const requestedRoute = schedules.find((schedule) => {
+      if (requestedRouteLocator.agency && requestedRouteLocator.code) {
+        return schedule.agency === requestedRouteLocator.agency &&
+          String(schedule.code || '').toLowerCase() === String(requestedRouteLocator.code).toLowerCase();
+      }
+
+      return Number(schedule.id) === Number(requestedRouteLocator.id);
+    });
 
     if (requestedRoute) {
       if (Number(route?.id) !== Number(requestedRoute.id)) {
@@ -633,7 +662,7 @@ function App() {
         message: 'This timetable could not be found. Select a route to view an available timetable.',
       });
     }
-  }, [loadingSchedules, requestedRouteId, route, schedules]);
+  }, [loadingSchedules, requestedRouteLocator, route, schedules]);
 
   useEffect(() => {
     if (route) {
@@ -644,7 +673,7 @@ function App() {
   const handleAgencyChange = (agency) => {
     const shouldStayInWorkspace = hasOpenedTimetableView || route;
 
-    setRequestedRouteId(null);
+    setRequestedRouteLocator(null);
     setSelectedAgency(agency);
     clearTimetableSelection({
       showWorkspace: shouldStayInWorkspace,
@@ -787,7 +816,7 @@ function App() {
     }
 
     if (timetablePayload) {
-      await saveTimetableToCache(route.id, timetablePayload, saved);
+      await saveTimetableToCache(route.id, timetablePayload, saved, route.effective_date);
     } else {
       await setTimetableSaved(route.id, saved);
     }
@@ -921,7 +950,7 @@ function App() {
                   />
                 ) : loading || !scheduleData ? (
                   <TimetableStatePanel
-                    title={route.name}
+                    title={getRouteSeoTitle(route)}
                     message="Loading timetable..."
                     loading
                   />
