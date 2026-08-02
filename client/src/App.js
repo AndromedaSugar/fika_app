@@ -19,11 +19,12 @@ import {
   isAreasIndexPath,
   normalizeDirectionLabel,
   slugify,
+  titleizeSlug,
 } from './routeUtils';
 import {
   getCachedSchedules,
   getCachedTimetable,
-  isCacheStale,
+  isTimetableCacheCurrent,
   saveSchedulesToCache,
   saveTimetableToCache,
   setTimetableSaved,
@@ -41,16 +42,10 @@ const SERVICE_DAYS = [
   { key: 'public_holiday', label: 'Public Holiday' },
 ];
 
-const FEATURED_AREA_LINKS = [
-  'Cape Town',
-  'Bellville',
-  'Khayelitsha',
-  'Claremont',
-  'Delft',
-  'Wynberg',
-  'Blouberg',
-  'Atlantis',
-];
+const FEATURED_AREA_LIMIT = 10;
+const AREA_LABEL_OVERRIDES = {
+  bluedowns: 'Blue Downs',
+};
 
 const LOCAL_API_PORT = '4000';
 const LOCAL_API_BASE_URL = `http://localhost:${LOCAL_API_PORT}`;
@@ -92,7 +87,9 @@ const getCurrentHostApiBaseUrl = () => {
 
 const fetchApiJson = async (endpoint, errorMessage) => {
   const fetchJson = async (baseUrl) => {
-    const response = await fetch(`${baseUrl}${endpoint}`);
+    // IndexedDB supplies the immediate/offline response. Always revalidate the HTTP
+    // response in the background so imported routes appear without a manual cache clear.
+    const response = await fetch(`${baseUrl}${endpoint}`, { cache: 'no-cache' });
     const contentType = response.headers.get('content-type') || '';
 
     if (!response.ok) {
@@ -293,6 +290,44 @@ const hasTimetableDirections = (payload) => {
   );
 };
 
+const hasRouteMetadataChanged = (currentRoute, nextRoute) => {
+  if (!currentRoute || !nextRoute) {
+    return currentRoute !== nextRoute;
+  }
+
+  return [
+    'name',
+    'code',
+    'agency',
+    'effective_date',
+    'direction_1',
+    'direction_2',
+  ].some((key) => currentRoute[key] !== nextRoute[key]);
+};
+
+const getFeaturedAreaLinks = (schedules) => {
+  const coverageBySlug = new Map();
+
+  (schedules || []).forEach((schedule) => {
+    const routeAreaSlugs = new Set(getRouteAreaNames(schedule).map(slugify));
+
+    routeAreaSlugs.forEach((areaSlug) => {
+      coverageBySlug.set(areaSlug, (coverageBySlug.get(areaSlug) || 0) + 1);
+    });
+  });
+
+  return [...coverageBySlug.entries()]
+    .map(([areaSlug, routeCount]) => ({
+      areaSlug,
+      label: AREA_LABEL_OVERRIDES[areaSlug] || titleizeSlug(areaSlug),
+      routeCount,
+    }))
+    .sort((first, second) =>
+      second.routeCount - first.routeCount || first.label.localeCompare(second.label)
+    )
+    .slice(0, FEATURED_AREA_LIMIT);
+};
+
 const getAvailableServiceDays = (scheduleData, selectedDirection) => {
   if (!scheduleData) {
     return [];
@@ -347,10 +382,7 @@ function LandingPage({
 }) {
   const agencies = [...new Set(schedules.map((schedule) => schedule.agency))].filter(Boolean);
   const availableAgencies = agencies.map(getAgencyDisplayName).join(' and ');
-  const areaSlugsWithRoutes = new Set(schedules.flatMap(getRouteAreaNames).map(slugify));
-  const featuredAreaLinks = FEATURED_AREA_LINKS.filter((areaName) =>
-    areaSlugsWithRoutes.has(slugify(areaName))
-  );
+  const featuredAreaLinks = getFeaturedAreaLinks(schedules);
 
   return (
     <main className="landing">
@@ -422,9 +454,13 @@ function LandingPage({
 
       {featuredAreaLinks.length > 0 && (
         <section className="area-link-band" aria-label="Popular Cape Town bus areas">
-          {featuredAreaLinks.map((areaName) => (
-            <a key={areaName} href={`/areas/${slugify(areaName)}`}>
-              {areaName}
+          {featuredAreaLinks.map(({ areaSlug, label, routeCount }) => (
+            <a
+              key={areaSlug}
+              href={`/areas/${areaSlug}`}
+              title={`${routeCount} routes serve ${label}`}
+            >
+              {label}
             </a>
           ))}
         </section>
@@ -521,10 +557,6 @@ function App() {
         setLoadingSchedules(false);
       }
 
-      if (cachedSchedules?.data?.length && !isCacheStale(cachedSchedules.cachedAt)) {
-        return;
-      }
-
       try {
         const data = normalizeScheduleRoutes(await fetchApiJson('/schedules', 'Unable to fetch schedules'));
 
@@ -580,6 +612,15 @@ function App() {
       if (Number(route?.id) !== Number(requestedRoute.id)) {
         selectRoute(requestedRoute, { updateUrl: true, replaceUrl: true });
       } else {
+        if (hasRouteMetadataChanged(route, requestedRoute)) {
+          const nextDirections = getRouteDirections(requestedRoute);
+
+          setRoute(requestedRoute);
+          setSelectedDirection((currentDirection) =>
+            nextDirections.includes(currentDirection) ? currentDirection : nextDirections[0] || ''
+          );
+        }
+
         updateBrowserPath(getTimetablePath(requestedRoute), true);
       }
 
@@ -649,7 +690,7 @@ function App() {
       if (
         cachedTimetable?.data &&
         hasTimetableDirections(cachedTimetable.data) &&
-        !isCacheStale(cachedTimetable.cachedAt)
+        isTimetableCacheCurrent(cachedTimetable, route.effective_date)
       ) {
         return;
       }
@@ -683,7 +724,12 @@ function App() {
         setTimetablePayload(normalizedPayload);
         setScheduleData(buildScheduleData(normalizedPayload));
         setTimetableMessage('');
-        await saveTimetableToCache(route.id, normalizedPayload, cachedTimetable?.saved);
+        await saveTimetableToCache(
+          route.id,
+          normalizedPayload,
+          cachedTimetable?.saved,
+          route.effective_date
+        );
         const refreshedTimetable = await getCachedTimetable(route.id);
         setRouteSavedOffline(Boolean(refreshedTimetable?.saved));
       } catch (error) {

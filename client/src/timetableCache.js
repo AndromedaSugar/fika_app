@@ -60,8 +60,6 @@ const requestToPromise = (request) => {
   });
 };
 
-export const isCacheStale = (cachedAt) => !cachedAt || Date.now() - cachedAt > DAY_MS;
-
 export const getCachedSchedules = async () => {
   try {
     const record = await withStore(STORES.schedules, 'readonly', (store) =>
@@ -106,7 +104,19 @@ export const getCachedTimetable = async (routeId) => {
   }
 };
 
-export const saveTimetableToCache = async (routeId, data, saved) => {
+export const isTimetableCacheCurrent = (record, effectiveDate) => {
+  if (!record?.cachedAt) {
+    return false;
+  }
+
+  if (effectiveDate) {
+    return record.effectiveDate === effectiveDate;
+  }
+
+  return Date.now() - record.cachedAt <= DAY_MS;
+};
+
+export const saveTimetableToCache = async (routeId, data, saved, effectiveDate = null) => {
   if (!routeId) {
     return;
   }
@@ -120,6 +130,7 @@ export const saveTimetableToCache = async (routeId, data, saved) => {
         routeId: Number(routeId),
         data,
         saved: saved ?? existing?.saved ?? false,
+        effectiveDate: effectiveDate || null,
         cachedAt: now,
         lastViewedAt: now,
       })

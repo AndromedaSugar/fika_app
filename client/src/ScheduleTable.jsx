@@ -11,14 +11,6 @@ const SERVICE_DAYS = [
   { key: 'sunday', short: 'Sun' },
 ];
 
-const AGENCY_LOGOS = {
-  GABS: '/agency-logos/gabs.png',
-  MyCiti: '/agency-logos/myciti.png',
-};
-
-const LOGO_PATTERN_ROWS = 5;
-const LOGOS_PER_PATTERN_ROW = 4;
-
 const formatStopTime = (stopTime) => {
   if (!stopTime || stopTime.stop_time_type === 'not_served') {
     return '--';
@@ -88,10 +80,6 @@ const getTimesByTripId = (row) => {
   }, {});
 };
 
-const getAgencyLogo = (agency) => {
-  return AGENCY_LOGOS[agency] || null;
-};
-
 const ScheduleTable = ({
   selectedDirection,
   selectedServiceDay,
@@ -114,7 +102,6 @@ const ScheduleTable = ({
   const defaultDirection = Object.keys(scheduleData)[0];
   const directionData = selectedDirection !== '' ? scheduleData[selectedDirection] : scheduleData[defaultDirection];
   const visibleTrips = directionData ? getVisibleTrips(directionData.trips, selectedServiceDay) : [];
-  const agencyLogo = getAgencyLogo(route?.agency);
   const columnCount = visibleTrips.length;
   const agencyName = getAgencyDisplayName(route?.agency);
   const stopCount = directionData?.rows?.length || 0;
@@ -145,19 +132,8 @@ const ScheduleTable = ({
       )}
       {directionData !== undefined ? (
         <div className="table-container">
-          {agencyLogo && (
-            <div className="agency-logo-pattern" aria-hidden="true">
-              {Array.from({ length: LOGO_PATTERN_ROWS }, (_, rowIndex) => (
-                <div className="agency-logo-pattern-row" key={rowIndex}>
-                  {Array.from({ length: LOGOS_PER_PATTERN_ROW }, (_, logoIndex) => (
-                    <img key={logoIndex} src={agencyLogo} alt="" />
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
           <table
-            className={`timetable ${agencyLogo ? 'has-agency-watermark' : ''}`}
+            className="timetable"
             style={{
               '--column-count': columnCount,
             }}
