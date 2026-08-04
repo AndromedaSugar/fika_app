@@ -110,10 +110,16 @@ code {
   z-index: 1000;
 }
 
+.navBar {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  position: relative;
+}
+
 .navList {
   align-items: center;
   display: flex;
-  flex-wrap: wrap;
   gap: 16px;
   list-style-type: none;
   margin: 0;
@@ -168,6 +174,10 @@ code {
 
 .navSecondaryLink:hover {
   color: #fff;
+}
+
+.navMenuButton {
+  display: none;
 }
 
 .container {
@@ -1228,9 +1238,26 @@ input:checked + label {
     padding: 8px 14px;
   }
 
+  .navBar {
+    justify-content: space-between;
+  }
+
   .navList {
-    align-items: flex-start;
-    gap: 8px 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-menu);
+    display: none;
+    gap: 0;
+    min-width: 210px;
+    overflow: hidden;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+  }
+
+  .navList.isOpen {
+    display: block;
   }
 
   .navLink {
@@ -1239,15 +1266,85 @@ input:checked + label {
   }
 
   .navSecondaryLink {
-    font-size: 11px;
-  }
-
-  .navItem:first-child {
-    flex: 1 0 100%;
+    color: var(--color-heading-soft);
+    font-size: 12px;
+    justify-content: flex-start;
+    min-height: 44px;
+    padding: 0 14px;
+    width: 100%;
   }
 
   .navItemSecondary {
-    flex: 0 0 auto;
+    border-bottom: 1px solid var(--color-border);
+    display: block;
+    width: 100%;
+  }
+
+  .navItemSecondary:last-child {
+    border-bottom: 0;
+  }
+
+  .navSecondaryLink:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-brand);
+  }
+
+  .navMenuButton {
+    align-items: center;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, .5);
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    display: inline-flex;
+    height: 34px;
+    justify-content: center;
+    padding: 0;
+    width: 40px;
+  }
+
+  .navMenuButton:hover,
+  .navMenuButton:focus-visible {
+    background: rgba(255, 255, 255, .12);
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+
+  .navMenuIcon,
+  .navMenuIcon::before,
+  .navMenuIcon::after {
+    background: currentColor;
+    border-radius: 999px;
+    content: "";
+    display: block;
+    height: 2px;
+    position: absolute;
+    transition: transform .18s ease, opacity .18s ease;
+    width: 18px;
+  }
+
+  .navMenuIcon {
+    position: relative;
+  }
+
+  .navMenuIcon::before {
+    transform: translateY(-6px);
+  }
+
+  .navMenuIcon::after {
+    transform: translateY(6px);
+  }
+
+  .navMenuButton[aria-expanded="true"] .navMenuIcon {
+    background: transparent;
+  }
+
+  .navMenuButton[aria-expanded="true"] .navMenuIcon::before {
+    transform: rotate(45deg);
+  }
+
+  .navMenuButton[aria-expanded="true"] .navMenuIcon::after {
+    transform: rotate(-45deg);
   }
 
   .container {
