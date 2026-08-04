@@ -29,7 +29,7 @@ export const INFO_PAGES = {
       'Fika Timetables stores viewed and saved timetables in your browser using IndexedDB so selected timetable data can be available offline.',
       'Fika Timetables does not run third-party promotional networks or personalized marketing trackers.',
       'You can manage or delete locally stored timetable data in your browser settings. Clearing site data may remove saved offline timetables.',
-      'The site does not require user accounts and does not ask for sensitive personal information. Contact hello@fikatimetables.co.za for privacy questions.',
+      'The site does not require user accounts and does not ask for sensitive personal information. Contact hello@fika.net.za for privacy questions.',
       'Route searches and saved timetable choices are handled in your browser unless they are needed to request timetable data from the server.',
     ],
   },
