@@ -87,6 +87,7 @@ const ScheduleTable = ({
   route,
   savedOffline,
   onSaveOfflineChange,
+  offlineSaveMessage,
 }) => {
   if (!scheduleData) {
     return (
@@ -124,6 +125,7 @@ const ScheduleTable = ({
           </label>
         )}
       </div>
+      {offlineSaveMessage && <p className="offline-save-error" role="alert">{offlineSaveMessage}</p>}
       {route && directionData && (
         <p className="route-summary">
           This {agencyName} timetable lists {stopCount} stops for {directionData.name || selectedDirection || 'this direction'}

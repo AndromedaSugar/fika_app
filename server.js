@@ -58,6 +58,7 @@ const PUBLIC_API_CACHE_CONTROL = process.env.PUBLIC_API_CACHE_CONTROL || 'public
 const API_RESPONSE_CACHE_ENABLED = process.env.API_RESPONSE_CACHE_ENABLED !== 'false';
 const PG_POOL_MAX = Number(process.env.PG_POOL_MAX) || (IS_PRODUCTION ? 5 : 10);
 const REQUEST_LOGGING_ENABLED = process.env.REQUEST_LOGGING_ENABLED !== 'false';
+const GA4_MEASUREMENT_ID_PATTERN = /^G-[A-Z0-9]+$/i;
 const PRIORITY_AREA_SLUGS = new Set([
   'atlantis',
   'mamre',
@@ -115,6 +116,24 @@ const developmentOrigins = new Set([
   `http://127.0.0.1:${PORT}`,
 ]);
 const allowedOrigins = new Set([siteOrigin, ...developmentOrigins]);
+const CONTENT_SECURITY_POLICY_DIRECTIVES = {
+  defaultSrc: ["'self'"],
+  baseUri: ["'self'"],
+  connectSrc: [
+    "'self'",
+    'https://*.google-analytics.com',
+    'https://*.analytics.google.com',
+    'https://www.googletagmanager.com',
+  ],
+  fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+  frameSrc: ["'self'"],
+  imgSrc: ["'self'", 'data:', 'https://*.google-analytics.com', 'https://www.googletagmanager.com'],
+  objectSrc: ["'none'"],
+  scriptSrc: ["'self'", "'unsafe-inline'", 'https://www.googletagmanager.com'],
+  scriptSrcElem: ["'self'", "'unsafe-inline'", 'https://www.googletagmanager.com'],
+  styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+  upgradeInsecureRequests: IS_PRODUCTION ? [] : null,
+};
 
 function normalizeIp(value) {
   if (!value) {
@@ -179,18 +198,7 @@ function shouldLogRequest(req) {
 app.use(compression());
 app.use(helmet({
   contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      baseUri: ["'self'"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-      frameSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:'],
-      objectSrc: ["'none'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-      upgradeInsecureRequests: IS_PRODUCTION ? [] : null,
-    },
+    directives: CONTENT_SECURITY_POLICY_DIRECTIVES,
   },
 }));
 app.use(cors({
@@ -583,11 +591,15 @@ const INFO_PAGES = {
     description: 'Read how Fika Timetables handles offline timetable caching, local browser storage, and timetable lookup privacy.',
     body: [
       'Fika Timetables stores viewed and saved timetables in your browser using IndexedDB so selected timetable data can be available offline.',
-      'Fika Timetables does not run third-party promotional networks or personalized marketing trackers.',
+      'With your permission, Fika Timetables uses Google Analytics 4 to measure page visits and interactions with route search, timetable filters, and offline saving. Google Analytics is not loaded until you accept analytics.',
+      'Fika does not send raw route-search text, stop names, timetable contents, contact details, or raw error messages to Google Analytics. Advertising storage, Google Signals, and ad personalization are disabled.',
+      'Your analytics choice is stored in this browser. You can reject analytics initially or change your choice later through the Analytics settings control on this page and in the site footer.',
+      'Analytics event-level data is configured for a 14-month retention period. Fika Timetables does not run third-party promotional networks or personalized marketing trackers.',
       'You can manage or delete locally stored timetable data in your browser settings. Clearing site data may remove saved offline timetables.',
       'The site does not require user accounts and does not ask for sensitive personal information. Contact hello@fikatimetables.co.za for privacy questions.',
       'Route searches and saved timetable choices are handled in your browser unless they are needed to request timetable data from the server.',
     ],
+    showAnalyticsSettings: true,
   },
   '/terms': {
     title: 'Terms and Disclaimer | Fika Timetables',
@@ -1047,6 +1059,9 @@ function renderIndexHtml(seo, bodyHtml = '') {
   const canonicalUrl = escapeHtml(seo.canonicalUrl);
   const robots = escapeHtml(seo.robots || 'index,follow');
   const jsonLd = serializeJsonLd(seo.jsonLd);
+  const runtimeConfig = JSON.stringify({
+    ga4MeasurementId: getGa4MeasurementId(),
+  }).replace(/</g, '\\u003c');
 
   html = replaceOrInsertHeadTag(html, /<title[^>]*>.*?<\/title>/i, `<title>${title}</title>`);
   html = replaceOrInsertHeadTag(html, /<meta\s+name="description"[^>]*>/i, `<meta name="description" content="${description}" />`);
@@ -1060,9 +1075,19 @@ function renderIndexHtml(seo, bodyHtml = '') {
   html = replaceOrInsertHeadTag(html, /<meta\s+name="twitter:title"[^>]*>/i, `<meta name="twitter:title" content="${title}" />`);
   html = replaceOrInsertHeadTag(html, /<meta\s+name="twitter:description"[^>]*>/i, `<meta name="twitter:description" content="${description}" />`);
   html = replaceOrInsertHeadTag(html, /<script\s+id="seo-jsonld"[^>]*>[\s\S]*?<\/script>/i, `<script id="seo-jsonld" type="application/ld+json">${jsonLd}</script>`);
+  html = replaceOrInsertHeadTag(
+    html,
+    /<script\s+id="fika-runtime-config"[^>]*>[\s\S]*?<\/script>/i,
+    `<script id="fika-runtime-config">window.__FIKA_CONFIG__=${runtimeConfig};</script>`
+  );
   html = html.replace('<div id="root"></div>', `<div id="root">${bodyHtml}</div>`);
 
   return html;
+}
+
+function getGa4MeasurementId(value = process.env.GA4_MEASUREMENT_ID) {
+  const measurementId = String(value || '').trim();
+  return GA4_MEASUREMENT_ID_PATTERN.test(measurementId) ? measurementId.toUpperCase() : '';
 }
 
 function sendNotFound(req, res, { title, description, eyebrow = 'Not found' }) {
@@ -1371,10 +1396,14 @@ function renderSiteFooter() {
     { href: '/operators/myciti', label: 'MyCiTi' },
     { href: '/operators/golden-arrow', label: 'Golden Arrow' },
     { href: '/areas', label: 'Areas' },
+    { href: '/saved-timetables', label: 'Saved' },
     { href: '/about', label: 'About' },
     { href: '/contact', label: 'Contact' },
     { href: '/privacy-policy', label: 'Privacy Policy' },
     { href: '/terms', label: 'Terms' },
+    ...(getGa4MeasurementId()
+      ? [{ href: '/privacy-policy#analytics-settings', label: 'Analytics settings' }]
+      : []),
   ];
 
   return `
@@ -1393,6 +1422,9 @@ function renderInfoBody(page) {
         <p class="info-eyebrow">${escapeHtml(page.eyebrow)}</p>
         <h1>${escapeHtml(page.heading || page.title)}</h1>
         ${page.body.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')}
+        ${page.showAnalyticsSettings && getGa4MeasurementId()
+          ? '<p id="analytics-settings"><a href="/privacy-policy#analytics-settings">Open Analytics settings</a></p>'
+          : ''}
       </section>
       ${renderSiteFooter()}
     </main>
@@ -1762,6 +1794,23 @@ app.get('/', async (req, res) => {
   }
 });
 
+app.get('/saved-timetables', (req, res) => {
+  const seo = {
+    title: 'Saved Timetables | Fika Timetables',
+    description: 'View bus timetables saved in this browser for offline reference.',
+    canonicalUrl: getAbsoluteUrl('/saved-timetables'),
+    robots: 'noindex,follow',
+    jsonLd: [],
+  };
+
+  res.set('X-Robots-Tag', 'noindex, follow');
+  res.send(renderIndexHtml(seo, renderSeoShell({
+    eyebrow: 'Available in this browser',
+    title: 'Saved timetables',
+    description: 'Saved timetable details are stored in this browser and appear after the Fika app loads.',
+  })));
+});
+
 Object.keys(INFO_PAGES).forEach((pagePath) => {
   app.get(pagePath, (req, res) => {
     res.send(renderIndexHtml(getInfoPageSeo(pagePath), renderInfoBody(INFO_PAGES[pagePath])));
@@ -1910,12 +1959,14 @@ module.exports = {
   app,
   buildSitemapXml,
   cleanAreaName,
+  CONTENT_SECURITY_POLICY_DIRECTIVES,
   finalizeAreas,
   formatEffectiveDate,
   getAreaNamesForRoute,
   getAreaSeo,
   getCanonicalAreaPath,
   getFeaturedAreas,
+  getGa4MeasurementId,
   getRouteSeoTitle,
   getTimetableDescription,
   getTimetableSeo,

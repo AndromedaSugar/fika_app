@@ -11,6 +11,28 @@ const STORES = {
 
 const canUseIndexedDB = () => typeof window !== 'undefined' && 'indexedDB' in window;
 
+export const isTimetableStorageAvailable = () => canUseIndexedDB();
+
+export const createRouteSnapshot = (route) => {
+  if (!route || !route.id) {
+    return null;
+  }
+
+  return {
+    id: Number(route.id),
+    agency: route.agency || '',
+    code: route.code || '',
+    name: route.name || '',
+    direction_1: route.direction_1 || '',
+    direction_2: route.direction_2 || '',
+    effective_date: route.effective_date || null,
+  };
+};
+
+const getRouteId = (routeOrId) => Number(
+  typeof routeOrId === 'object' ? routeOrId?.id : routeOrId
+);
+
 const openDatabase = () => {
   if (!canUseIndexedDB()) {
     return Promise.resolve(null);
@@ -116,34 +138,49 @@ export const isTimetableCacheCurrent = (record, effectiveDate) => {
   return Date.now() - record.cachedAt <= DAY_MS;
 };
 
-export const saveTimetableToCache = async (routeId, data, saved, effectiveDate = null) => {
-  if (!routeId) {
-    return;
+export const saveTimetableToCache = async (routeOrId, data, saved, effectiveDate = null) => {
+  const routeId = getRouteId(routeOrId);
+
+  if (!routeId || !canUseIndexedDB()) {
+    return false;
   }
 
   try {
     const existing = await getCachedTimetable(routeId);
     const now = Date.now();
+    const routeSnapshot = createRouteSnapshot(
+      typeof routeOrId === 'object' ? routeOrId : null
+    ) || existing?.routeSnapshot || null;
+    const savedValue = saved ?? existing?.saved ?? false;
+    const nextEffectiveDate = typeof routeOrId === 'object'
+      ? routeOrId.effective_date || null
+      : effectiveDate || null;
 
     await withStore(STORES.timetables, 'readwrite', (store) =>
       store.put({
         routeId: Number(routeId),
         data,
-        saved: saved ?? existing?.saved ?? false,
-        effectiveDate: effectiveDate || null,
+        saved: savedValue,
+        savedAt: savedValue ? existing?.savedAt || now : null,
+        routeSnapshot,
+        effectiveDate: nextEffectiveDate,
         cachedAt: now,
         lastViewedAt: now,
       })
     );
 
     await trimRecentTimetables();
+    return true;
   } catch (error) {
     console.error('Error saving timetable to cache:', error);
+    return false;
   }
 };
 
-export const setTimetableSaved = async (routeId, saved) => {
-  if (!routeId) {
+export const setTimetableSaved = async (routeOrId, saved) => {
+  const routeId = getRouteId(routeOrId);
+
+  if (!routeId || !canUseIndexedDB()) {
     return false;
   }
 
@@ -154,11 +191,18 @@ export const setTimetableSaved = async (routeId, saved) => {
       return false;
     }
 
+    const now = Date.now();
+    const routeSnapshot = createRouteSnapshot(
+      typeof routeOrId === 'object' ? routeOrId : null
+    ) || existing.routeSnapshot || null;
+
     await withStore(STORES.timetables, 'readwrite', (store) =>
       store.put({
         ...existing,
         saved,
-        lastViewedAt: Date.now(),
+        savedAt: saved ? (existing.saved ? existing.savedAt || now : now) : null,
+        routeSnapshot,
+        lastViewedAt: now,
       })
     );
 
@@ -167,6 +211,65 @@ export const setTimetableSaved = async (routeId, saved) => {
     console.error('Error updating saved timetable:', error);
     return false;
   }
+};
+
+const getAllTimetables = async () => {
+  const records = await withStore(STORES.timetables, 'readonly', (store) =>
+    requestToPromise(store.getAll())
+  );
+
+  return records || [];
+};
+
+export const getSavedTimetables = async (schedules = []) => {
+  try {
+    const originalRecords = await getAllTimetables();
+    const scheduleById = new Map((schedules || []).map((route) => [Number(route.id), route]));
+    const savedRecords = originalRecords
+      .filter((record) => record.saved)
+      .map((record) => ({
+        ...record,
+        routeSnapshot: record.routeSnapshot || createRouteSnapshot(scheduleById.get(Number(record.routeId))),
+      }))
+      .sort((first, second) =>
+        (second.lastViewedAt || second.savedAt || 0) - (first.lastViewedAt || first.savedAt || 0)
+      );
+    // Backfill legacy records only when their original record had no route snapshot.
+    const originalById = new Map(originalRecords.map((record) => [Number(record.routeId), record]));
+    const backfills = savedRecords.filter((record) =>
+      record.routeSnapshot && !originalById.get(Number(record.routeId))?.routeSnapshot
+    );
+
+    if (backfills.length) {
+      await withStore(STORES.timetables, 'readwrite', (store) => {
+        backfills.forEach((record) => store.put(record));
+      });
+    }
+    return savedRecords;
+  } catch (error) {
+    console.error('Error listing saved timetables:', error);
+    return [];
+  }
+};
+
+export const findSavedTimetableByLocator = async (locator) => {
+  if (!locator) {
+    return null;
+  }
+
+  const savedRecords = await getSavedTimetables();
+
+  return savedRecords.find((record) => {
+    const snapshot = record.routeSnapshot;
+
+    if (locator.id) {
+      return Number(record.routeId) === Number(locator.id);
+    }
+
+    return snapshot &&
+      snapshot.agency === locator.agency &&
+      String(snapshot.code || '').toLowerCase() === String(locator.code || '').toLowerCase();
+  }) || null;
 };
 
 export const touchTimetable = async (routeId) => {
@@ -190,9 +293,7 @@ export const touchTimetable = async (routeId) => {
 
 export const trimRecentTimetables = async () => {
   try {
-    const records = await withStore(STORES.timetables, 'readonly', (store) =>
-      requestToPromise(store.getAll())
-    );
+    const records = await getAllTimetables();
     const unsaved = (records || [])
       .filter((record) => !record.saved)
       .sort((first, second) => (second.lastViewedAt || 0) - (first.lastViewedAt || 0));

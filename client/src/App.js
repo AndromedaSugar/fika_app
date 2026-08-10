@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import SchedulesDropdown from './SchedulesDropdown';
 import ScheduleTable from './ScheduleTable';
 import DirectionRadioButton from './DirectionRadioButton';
@@ -7,6 +7,13 @@ import { AreaPage, AreasIndexPage } from './AreaPages';
 import InfoPage, { INFO_PAGES } from './InfoPage';
 import OperatorPage from './OperatorPage';
 import SiteFooter from './SiteFooter';
+import SavedTimetablesPage from './SavedTimetablesPage';
+import {
+  getOnlineState,
+  trackEvent,
+  trackPageView,
+  trackTimetableView,
+} from './analytics';
 import {
   getAgencyDisplayName,
   getAreaSlugFromPath,
@@ -25,6 +32,7 @@ import {
 import {
   getCachedSchedules,
   getCachedTimetable,
+  findSavedTimetableByLocator,
   isTimetableCacheCurrent,
   saveSchedulesToCache,
   saveTimetableToCache,
@@ -77,6 +85,19 @@ const getCurrentPath = () => {
   }
 
   return window.location.pathname;
+};
+
+const routeMatchesLocator = (route, locator) => {
+  if (!route || !locator) {
+    return false;
+  }
+
+  if (locator.agency && locator.code) {
+    return route.agency === locator.agency &&
+      String(route.code || '').toLowerCase() === String(locator.code).toLowerCase();
+  }
+
+  return Number(route.id) === Number(locator.id);
 };
 
 const updateBrowserPath = (nextPath, replace = false) => {
@@ -394,9 +415,6 @@ function LandingPage({
   loadingSchedules,
   onAgencyChange,
   onRouteSelect,
-  setRoute,
-  setSelectedAgency,
-  setSelectedDirection,
 }) {
   const agencies = [...new Set(schedules.map((schedule) => schedule.agency))].filter(Boolean);
   const availableAgencies = agencies.map(getAgencyDisplayName).join(' and ');
@@ -428,9 +446,7 @@ function LandingPage({
               selectedAgency={selectedAgency}
               onAgencyChange={onAgencyChange}
               onRouteSelect={onRouteSelect}
-              setRoute={setRoute}
-              setSelectedAgency={setSelectedAgency}
-              setSelectedDirection={setSelectedDirection}
+              searchLocation="landing_search"
             />
           )}
           <p id="landing-search-helper">
@@ -526,9 +542,14 @@ function App() {
   const [mobileFilterSheet, setMobileFilterSheet] = useState(null);
   const [hasOpenedTimetableView, setHasOpenedTimetableView] = useState(false);
   const [timetableMessage, setTimetableMessage] = useState('');
+  const [offlineSaveMessage, setOfflineSaveMessage] = useState('');
   const [routeSavedOffline, setRouteSavedOffline] = useState(false);
+  const [timetableDataSource, setTimetableDataSource] = useState('');
+  const [timetableViewKey, setTimetableViewKey] = useState('');
   const [requestedRouteLocator, setRequestedRouteLocator] = useState(getInitialRouteLocator);
   const [currentPath, setCurrentPath] = useState(getCurrentPath);
+  const routeViewSequence = useRef(0);
+  const failedRouteLocators = useRef(new Set());
 
   const clearTimetableSelection = ({ showWorkspace = false, message = '' } = {}) => {
     setRoute(null);
@@ -538,11 +559,16 @@ function App() {
     setSelectedServiceDay('');
     setMobileFilterSheet(null);
     setRouteSavedOffline(false);
+    setTimetableDataSource('');
+    setOfflineSaveMessage('');
     setTimetableMessage(message);
     setHasOpenedTimetableView(showWorkspace);
   };
 
-  const selectRoute = (selectedRoute, { updateUrl = true, replaceUrl = false } = {}) => {
+  const selectRoute = (
+    selectedRoute,
+    { updateUrl = true, replaceUrl = false, selectionSource = '' } = {}
+  ) => {
     if (!selectedRoute) {
       return;
     }
@@ -558,10 +584,23 @@ function App() {
     setSelectedServiceDay('');
     setMobileFilterSheet(null);
     setTimetableMessage('');
+    setOfflineSaveMessage('');
     setHasOpenedTimetableView(true);
+    routeViewSequence.current += 1;
+    setTimetableViewKey(`${selectedRoute.id}-${routeViewSequence.current}`);
+
+    if (selectionSource) {
+      trackEvent('route_selected', {
+        agency: selectedRoute.agency,
+        route_code: selectedRoute.code || 'unknown',
+        selection_source: selectionSource,
+      });
+    }
 
     if (updateUrl) {
-      updateBrowserPath(getTimetablePath(selectedRoute), replaceUrl);
+      const timetablePath = getTimetablePath(selectedRoute);
+      updateBrowserPath(timetablePath, replaceUrl);
+      setCurrentPath(timetablePath);
     }
   };
 
@@ -624,44 +663,76 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!requestedRouteLocator || !schedules.length) {
-      return;
+    let ignore = false;
+
+    if (!requestedRouteLocator) {
+      return undefined;
     }
 
     const requestedRoute = schedules.find((schedule) => {
-      if (requestedRouteLocator.agency && requestedRouteLocator.code) {
-        return schedule.agency === requestedRouteLocator.agency &&
-          String(schedule.code || '').toLowerCase() === String(requestedRouteLocator.code).toLowerCase();
-      }
-
-      return Number(schedule.id) === Number(requestedRouteLocator.id);
+      return routeMatchesLocator(schedule, requestedRouteLocator);
     });
 
-    if (requestedRoute) {
-      if (Number(route?.id) !== Number(requestedRoute.id)) {
-        selectRoute(requestedRoute, { updateUrl: true, replaceUrl: true });
-      } else {
-        if (hasRouteMetadataChanged(route, requestedRoute)) {
-          const nextDirections = getRouteDirections(requestedRoute);
+    if (routeMatchesLocator(route, requestedRouteLocator)) {
+      if (requestedRoute && Number(route.id) === Number(requestedRoute.id) && hasRouteMetadataChanged(route, requestedRoute)) {
+        const nextDirections = getRouteDirections(requestedRoute);
 
-          setRoute(requestedRoute);
-          setSelectedDirection((currentDirection) =>
-            nextDirections.includes(currentDirection) ? currentDirection : nextDirections[0] || ''
-          );
-        }
-
-        updateBrowserPath(getTimetablePath(requestedRoute), true);
+        setRoute(requestedRoute);
+        setSelectedDirection((currentDirection) =>
+          nextDirections.includes(currentDirection) ? currentDirection : nextDirections[0] || ''
+        );
       }
 
-      return;
+      return undefined;
     }
 
-    if (!loadingSchedules) {
+    if (requestedRoute && getOnlineState() !== 'offline') {
+      selectRoute(requestedRoute, { updateUrl: true, replaceUrl: true });
+      return undefined;
+    }
+
+    if (loadingSchedules) {
+      return undefined;
+    }
+
+    const resolveSavedRoute = async () => {
+      const savedTimetable = await findSavedTimetableByLocator(requestedRouteLocator);
+
+      if (ignore) {
+        return;
+      }
+
+      if (savedTimetable?.routeSnapshot) {
+        selectRoute(savedTimetable.routeSnapshot, { updateUrl: true, replaceUrl: true });
+        return;
+      }
+
+      if (requestedRoute) {
+        selectRoute(requestedRoute, { updateUrl: true, replaceUrl: true });
+        return;
+      }
+
       clearTimetableSelection({
         showWorkspace: true,
         message: 'This timetable could not be found. Select a route to view an available timetable.',
       });
-    }
+      const failureKey = JSON.stringify(requestedRouteLocator);
+
+      if (!failedRouteLocators.current.has(failureKey)) {
+        failedRouteLocators.current.add(failureKey);
+        trackEvent('timetable_load_failed', {
+          agency: requestedRouteLocator.agency || 'unknown',
+          route_code: requestedRouteLocator.code || 'unknown',
+          online_state: getOnlineState(),
+          failure_type: 'route_not_found',
+        });
+      }
+    };
+
+    resolveSavedRoute();
+    return () => {
+      ignore = true;
+    };
   }, [loadingSchedules, requestedRouteLocator, route, schedules]);
 
   useEffect(() => {
@@ -669,6 +740,35 @@ function App() {
       setHasOpenedTimetableView(true);
     }
   }, [route]);
+
+  useEffect(() => {
+    const pathRouteLocator = getRouteLocatorFromPath(currentPath);
+
+    if (pathRouteLocator && !routeMatchesLocator(route, pathRouteLocator)) {
+      return;
+    }
+
+    let pageTitle = 'Fika Timetables | Cape Town Bus Timetables';
+    const currentInfoPage = INFO_PAGES[currentPath];
+    const currentOperator = getOperatorAgencyFromPath(currentPath);
+    const currentAreaSlug = getAreaSlugFromPath(currentPath);
+
+    if (pathRouteLocator && route) {
+      pageTitle = getRouteSeoTitle(route);
+    } else if (currentPath === '/saved-timetables') {
+      pageTitle = 'Saved Timetables | Fika Timetables';
+    } else if (currentInfoPage) {
+      pageTitle = currentInfoPage.title;
+    } else if (currentOperator) {
+      pageTitle = `${getAgencyDisplayName(currentOperator)} Bus Timetables | Fika Timetables`;
+    } else if (currentPath === '/areas') {
+      pageTitle = 'Cape Town Bus Areas | Fika Timetables';
+    } else if (currentAreaSlug) {
+      pageTitle = `${titleizeSlug(currentAreaSlug)} Bus Times | Fika Timetables`;
+    }
+
+    trackPageView({ path: currentPath, title: pageTitle });
+  }, [currentPath, route]);
 
   const handleAgencyChange = (agency) => {
     const shouldStayInWorkspace = hasOpenedTimetableView || route;
@@ -680,10 +780,11 @@ function App() {
       message: 'Select a route to view its timetable.',
     });
     updateBrowserPath('/');
+    setCurrentPath('/');
   };
 
-  const handleRouteSelect = (selectedRoute) => {
-    selectRoute(selectedRoute);
+  const handleRouteSelect = (selectedRoute, { source } = {}) => {
+    selectRoute(selectedRoute, { selectionSource: source });
   };
 
   useEffect(() => {
@@ -691,6 +792,7 @@ function App() {
 
     const fetchScheduleTimes = async () => {
       const cachedTimetable = await getCachedTimetable(route.id);
+      let hasUsableCachedTimetable = false;
 
       if (ignore) {
         return;
@@ -702,8 +804,10 @@ function App() {
         const cachedTimetablePayload = normalizeTimetablePayload(cachedTimetable.data);
 
         if (hasTimetableDirections(cachedTimetablePayload)) {
+          hasUsableCachedTimetable = true;
           setTimetablePayload(cachedTimetablePayload);
           setScheduleData(buildScheduleData(cachedTimetablePayload));
+          setTimetableDataSource('cache');
           setLoadingTimes(false);
           setTimetableMessage('');
           await touchTimetable(route.id);
@@ -730,10 +834,12 @@ function App() {
         }
 
         let data;
+        let networkDataSource = 'network_v2';
 
         try {
           data = await fetchApiJson(`/api/v2/schedule_times/${route.id}`, 'Unable to fetch timetable');
         } catch (error) {
+          networkDataSource = 'network_legacy';
           data = await fetchApiJson(`/schedule_times/${route.id}`, 'Unable to fetch timetable');
         }
 
@@ -744,28 +850,42 @@ function App() {
         }
 
         if (!hasTimetableDirections(normalizedPayload)) {
-          setTimetablePayload(null);
-          setScheduleData(null);
-          setTimetableMessage('This timetable is not available yet. Select another route or try again after the latest data refresh is complete.');
+          if (!hasUsableCachedTimetable) {
+            setTimetablePayload(null);
+            setScheduleData(null);
+            setTimetableMessage('This timetable is not available yet. Select another route or try again after the latest data refresh is complete.');
+            trackEvent('timetable_load_failed', {
+              agency: route.agency,
+              route_code: route.code || 'unknown',
+              online_state: getOnlineState(),
+              failure_type: 'invalid_payload',
+            });
+          }
           return;
         }
 
         setTimetablePayload(normalizedPayload);
         setScheduleData(buildScheduleData(normalizedPayload));
+        setTimetableDataSource(networkDataSource);
         setTimetableMessage('');
         await saveTimetableToCache(
-          route.id,
+          route,
           normalizedPayload,
-          cachedTimetable?.saved,
-          route.effective_date
+          cachedTimetable?.saved
         );
         const refreshedTimetable = await getCachedTimetable(route.id);
         setRouteSavedOffline(Boolean(refreshedTimetable?.saved));
       } catch (error) {
         console.error('Error fetching timetable:', error);
 
-        if (!cachedTimetable?.data && !ignore) {
+        if (!hasUsableCachedTimetable && !ignore) {
           setTimetableMessage('This timetable is not available offline yet. Connect to the internet and open it once to cache it.');
+          trackEvent('timetable_load_failed', {
+            agency: route.agency,
+            route_code: route.code || 'unknown',
+            online_state: getOnlineState(),
+            failure_type: 'network',
+          });
         }
       } finally {
         if (!ignore) {
@@ -778,6 +898,7 @@ function App() {
       setLoadingTimes(true);
       setScheduleData(null);
       setTimetablePayload(null);
+      setTimetableDataSource('');
       setTimetableMessage('');
       fetchScheduleTimes();
     }
@@ -786,6 +907,20 @@ function App() {
       ignore = true;
     };
   }, [route]);
+
+  useEffect(() => {
+    if (!route || !scheduleData || !timetableDataSource || !timetableViewKey) {
+      return;
+    }
+
+    trackTimetableView(timetableViewKey, {
+      agency: route.agency,
+      route_code: route.code || 'unknown',
+      data_source: timetableDataSource,
+      online_state: getOnlineState(),
+      saved_offline: routeSavedOffline,
+    });
+  }, [route, routeSavedOffline, scheduleData, timetableDataSource, timetableViewKey]);
 
   useEffect(() => {
     const availableServiceDays = getAvailableServiceDays(scheduleData, selectedDirection);
@@ -810,18 +945,52 @@ function App() {
     setMobileFilterSheet(null);
   };
 
+  const handleDirectionChange = (direction) => {
+    setSelectedDirection(direction);
+    if (route) {
+      trackEvent('direction_changed', {
+        agency: route.agency,
+        route_code: route.code || 'unknown',
+        direction,
+      });
+    }
+  };
+
+  const handleServiceDayChange = (serviceDay) => {
+    setSelectedServiceDay(serviceDay);
+    if (route) {
+      trackEvent('service_day_changed', {
+        agency: route.agency,
+        route_code: route.code || 'unknown',
+        service_day: serviceDay,
+      });
+    }
+  };
+
   const handleSaveOfflineChange = async (saved) => {
     if (!route) {
       return;
     }
 
+    let savedSuccessfully;
+
     if (timetablePayload) {
-      await saveTimetableToCache(route.id, timetablePayload, saved, route.effective_date);
+      savedSuccessfully = await saveTimetableToCache(route, timetablePayload, saved);
     } else {
-      await setTimetableSaved(route.id, saved);
+      savedSuccessfully = await setTimetableSaved(route, saved);
     }
 
-    setRouteSavedOffline(saved);
+    if (savedSuccessfully) {
+      setRouteSavedOffline(saved);
+      setOfflineSaveMessage('');
+      trackEvent('offline_save_changed', {
+        agency: route.agency,
+        route_code: route.code || 'unknown',
+        saved_state: saved ? 'saved' : 'removed',
+      });
+    } else {
+      setOfflineSaveMessage('Fika could not update offline storage. Check your browser storage settings and try again.');
+    }
   };
 
   const routeSearchPlaceholder = selectedAgency
@@ -833,11 +1002,17 @@ function App() {
   const operatorAgency = getOperatorAgencyFromPath(currentPath);
   const areaSlug = getAreaSlugFromPath(currentPath);
   const isAreasIndex = isAreasIndexPath(currentPath);
+  const isSavedTimetablesPage = currentPath === '/saved-timetables';
 
   return (
     <div className="App">
       <Navbar />
-      {infoPage ? (
+      {isSavedTimetablesPage ? (
+        <SavedTimetablesPage
+          schedules={schedules}
+          onViewRoute={(savedRoute) => selectRoute(savedRoute)}
+        />
+      ) : infoPage ? (
         <InfoPage page={infoPage} />
       ) : operatorAgency ? (
         <OperatorPage
@@ -865,9 +1040,6 @@ function App() {
             loadingSchedules={loadingInitialSchedules}
             onAgencyChange={handleAgencyChange}
             onRouteSelect={handleRouteSelect}
-            setRoute={setRoute}
-            setSelectedAgency={setSelectedAgency}
-            setSelectedDirection={setSelectedDirection}
           />
           <SiteFooter />
         </>
@@ -883,9 +1055,7 @@ function App() {
                   selectedAgency={selectedAgency}
                   onAgencyChange={handleAgencyChange}
                   onRouteSelect={handleRouteSelect}
-                  setRoute={setRoute}
-                  setSelectedAgency={setSelectedAgency}
-                  setSelectedDirection={setSelectedDirection}
+                  searchLocation="timetable_search"
                 />
                 {directions.length > 0 && (
                   <div className="mobile-filter-chips">
@@ -915,7 +1085,7 @@ function App() {
                   <DirectionRadioButton
                     className="directions"
                     route={route}
-                    setSelectedDirection={setSelectedDirection}
+                    setSelectedDirection={handleDirectionChange}
                     selectedDirection={selectedDirection}
                   />
                 )}
@@ -928,7 +1098,7 @@ function App() {
                           key={day.key}
                           type="button"
                           className={selectedServiceDay === day.key ? 'active' : ''}
-                          onClick={() => setSelectedServiceDay(day.key)}
+                          onClick={() => handleServiceDayChange(day.key)}
                         >
                           {day.label}
                         </button>
@@ -962,6 +1132,7 @@ function App() {
                     route={route}
                     savedOffline={routeSavedOffline}
                     onSaveOfflineChange={handleSaveOfflineChange}
+                    offlineSaveMessage={offlineSaveMessage}
                   />
                 )}
               </div>
@@ -989,7 +1160,7 @@ function App() {
                           type="button"
                           className={selectedDirection === direction ? 'active' : ''}
                           onClick={() => {
-                            setSelectedDirection(direction);
+                            handleDirectionChange(direction);
                             closeMobileFilterSheet();
                           }}
                         >
@@ -1002,7 +1173,7 @@ function App() {
                           type="button"
                           className={selectedServiceDay === day.key ? 'active' : ''}
                           onClick={() => {
-                            setSelectedServiceDay(day.key);
+                            handleServiceDayChange(day.key);
                             closeMobileFilterSheet();
                           }}
                         >

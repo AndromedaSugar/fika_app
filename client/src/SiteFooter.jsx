@@ -1,4 +1,5 @@
 import React from 'react';
+import { AnalyticsSettingsButton } from './AnalyticsConsent';
 
 export default function SiteFooter() {
   return (
@@ -6,10 +7,12 @@ export default function SiteFooter() {
       <a href="/operators/myciti">MyCiTi</a>
       <a href="/operators/golden-arrow">Golden Arrow</a>
       <a href="/areas">Areas</a>
+      <a href="/saved-timetables">Saved</a>
       <a href="/about">About</a>
       <a href="/contact">Contact</a>
       <a href="/privacy-policy">Privacy Policy</a>
       <a href="/terms">Terms</a>
+      <AnalyticsSettingsButton className="site-footer-button" />
     </footer>
   );
 }

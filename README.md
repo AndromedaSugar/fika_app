@@ -8,6 +8,7 @@ easier than downloading static PDFs from transit websites.
 - 🔍 **Searchable Timetables**: Quickly search for a specific route’s schedule.
 - 🔁 **Route Direction Toggle**: Flip between outbound and return directions for any route using a convenient radio button.
 - 🧭 **Cleaner UI**: No more sifting through PDF documents—FikaApp presents the data in a clean and readable format.
+- 📱 **Saved Offline Timetables**: Pin timetable data in the browser and reopen it from one offline-ready hub.
 - 🚌 **Current Support**: Currently displays **MyCiTi Bus** timetables.
 - 🛠️ **Coming Soon**: Integration of **Golden Arrow** and **train** schedules.
 
@@ -19,7 +20,6 @@ easier than downloading static PDFs from transit websites.
 ## 📦 Future Plans
 
 - Add support for Golden Arrow and train timetables.
-- Offline access or caching.
 - Mobile-first UX enhancements.
 
 ## Preview 
@@ -35,6 +35,27 @@ Public timetable pages use the route's stable agency and operator code:
 ```
 
 Numeric database IDs remain internal to `/schedule_times/:id` and `/api/v2/schedule_times/:id`. Historic numeric page URLs are stored in `route_url_aliases` and redirect with HTTP 301. Timetable replacement imports preserve these aliases before deleting routes.
+
+## Saved timetables and offline access
+
+Timetables pinned with **Save offline** appear at `/saved-timetables`. Saved route metadata and timetable payloads remain in that browser's IndexedDB; they are not attached to an account or synced between devices. The production service worker caches only the application shell and static assets so the saved hub and cached timetable URLs can cold-start without a network connection. API timetable payloads are not stored in Cache Storage.
+
+Offline access requires at least one successful online visit on the browser. Removing a timetable from the saved hub unpins it but leaves the normal short-lived recent-view cache behavior intact.
+
+## Privacy-gated GA4 analytics
+
+Set `GA4_MEASUREMENT_ID` on the production web service to a valid GA4 web-stream ID such as `G-ABC123`. The server injects the ID at runtime; if it is absent or invalid, the Google tag and analytics consent controls remain disabled. Local CRA development can optionally use `REACT_APP_GA4_MEASUREMENT_ID`.
+
+GA4 loads only after a visitor selects **Accept analytics**. Advertising storage, Google Signals, and ad personalization remain disabled. Fika sends route codes and controlled interaction categories, but never raw search text, stop names, timetable contents, contact details, query strings, or raw errors.
+
+Configure the GA4 property as follows:
+
+- Disable Enhanced Measurement's browser-history page changes because Fika sends explicit SPA page views.
+- Disable Enhanced Measurement's automatic site search so `q` parameters are never collected as search terms.
+- Register event dimensions for `agency`, `route_code`, `search_location`, `selection_source`, `query_length_bucket`, `data_source`, `online_state`, `saved_state`, `direction`, `service_day`, and `failure_type`.
+- Register numeric event metrics for `result_count` and `saved_count`.
+- Mark `timetable_viewed` as a key event, use 14-month event-data retention, and leave Google Signals and ad personalization disabled.
+- Verify the consent transition, single page views, and custom events in Tag Assistant or DebugView before using the production stream for reporting.
 
 To seed all known numeric URLs from the pre-replacement backup into a target database, run from the parent project directory:
 

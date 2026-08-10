@@ -10,7 +10,7 @@
     "precompute:api-cache": "node scripts/precompute-api-cache.js",
     "start": "node scripts/precompute-api-cache.js --soft-fail && node server.js",
     "start:server": "node server.js",
-    "test": "node --test"
+    "test": "node --test test/*.test.js"
   },
   "keywords": [],
   "author": "",

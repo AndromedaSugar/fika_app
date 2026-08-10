@@ -4,13 +4,16 @@ const {
   app,
   buildSitemapXml,
   cleanAreaName,
+  CONTENT_SECURITY_POLICY_DIRECTIVES,
   finalizeAreas,
   formatEffectiveDate,
   getAreaNamesForRoute,
   getAreaSeo,
+  getGa4MeasurementId,
   getRouteSeoTitle,
   getTimetableDescription,
   getTimetableSeo,
+  renderIndexHtml,
 } = require('../server');
 
 const route = {
@@ -85,4 +88,51 @@ test('numeric timetable APIs remain registered for backward compatibility', () =
     .filter(Boolean);
   assert.ok(paths.includes('/schedule_times/:id'));
   assert.ok(paths.includes('/api/v2/schedule_times/:id'));
+});
+
+test('GA4 measurement IDs are validated before runtime injection', () => {
+  assert.equal(getGa4MeasurementId(' g-AbC123 '), 'G-ABC123');
+  assert.equal(getGa4MeasurementId('GTM-ABC123'), '');
+  assert.equal(getGa4MeasurementId('<script>'), '');
+});
+
+test('valid GA4 configuration is injected into rendered pages', () => {
+  const previousMeasurementId = process.env.GA4_MEASUREMENT_ID;
+  process.env.GA4_MEASUREMENT_ID = 'G-RUNTIME123';
+
+  try {
+    const html = renderIndexHtml({
+      title: 'Test',
+      description: 'Test page',
+      canonicalUrl: 'https://www.fika.net.za/test',
+      jsonLd: [],
+    });
+    assert.match(html, /window\.__FIKA_CONFIG__=\{"ga4MeasurementId":"G-RUNTIME123"\}/);
+  } finally {
+    if (previousMeasurementId === undefined) {
+      delete process.env.GA4_MEASUREMENT_ID;
+    } else {
+      process.env.GA4_MEASUREMENT_ID = previousMeasurementId;
+    }
+  }
+});
+
+test('saved timetables are noindex, excluded from the sitemap, and allow GA4 CSP endpoints', () => {
+  const routeLayer = app._router.stack.find((layer) => layer.route?.path === '/saved-timetables');
+  const response = {
+    headers: {},
+    body: '',
+    set(name, value) { this.headers[name] = value; return this; },
+    send(value) { this.body = value; return this; },
+  };
+  routeLayer.route.stack[0].handle({}, response);
+
+  const sitemap = buildSitemapXml([route], []);
+
+  assert.equal(response.headers['X-Robots-Tag'], 'noindex, follow');
+  assert.match(response.body, /Saved timetables/);
+  assert.match(response.body, /name="robots" content="noindex,follow"/);
+  assert.ok(CONTENT_SECURITY_POLICY_DIRECTIVES.scriptSrc.includes('https://www.googletagmanager.com'));
+  assert.ok(CONTENT_SECURITY_POLICY_DIRECTIVES.connectSrc.includes('https://*.google-analytics.com'));
+  assert.doesNotMatch(sitemap, /saved-timetables/);
 });

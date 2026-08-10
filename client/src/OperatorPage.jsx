@@ -59,7 +59,11 @@ export default function OperatorPage({ agency, schedules, loadingSchedules }) {
           {loadingSchedules ? (
             <p>Loading routes...</p>
           ) : (
-            <RouteLinkList routes={routes} emptyMessage="No routes are available for this operator yet." />
+            <RouteLinkList
+              routes={routes}
+              emptyMessage="No routes are available for this operator yet."
+              selectionSource="operator_page"
+            />
           )}
           {areas.length > 0 && (
             <>

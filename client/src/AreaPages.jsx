@@ -51,7 +51,7 @@ export function AreaPage({ areaSlug, schedules, loadingSchedules }) {
             operatorGroups.length ? operatorGroups.map((group) => (
               <section key={group.agency} className="seo-route-group">
                 <h3>{getAgencyDisplayName(group.agency)}</h3>
-                <RouteLinkList routes={group.routes} emptyMessage="" />
+                <RouteLinkList routes={group.routes} emptyMessage="" selectionSource="area_page" />
               </section>
             )) : <p>No route matches are loaded for this area yet. Use search to find a route.</p>
           )}

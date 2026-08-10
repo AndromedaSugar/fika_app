@@ -5,6 +5,7 @@ const NAV_LINKS = [
     { href: '/operators/myciti', label: 'MyCiTi' },
     { href: '/operators/golden-arrow', label: 'Golden Arrow' },
     { href: '/areas', label: 'Areas' },
+    { href: '/saved-timetables', label: 'Saved' },
     { href: '/contact', label: 'Contact' },
 ];
 
