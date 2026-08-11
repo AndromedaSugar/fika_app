@@ -2,14 +2,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
-import { AnalyticsConsentProvider } from './AnalyticsConsent';
+import { initializeAnalytics } from './analytics';
+
+initializeAnalytics();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <AnalyticsConsentProvider>
-      <App />
-    </AnalyticsConsentProvider>
+    <App />
   </React.StrictMode>
 );
 

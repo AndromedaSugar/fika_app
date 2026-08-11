@@ -1,9 +1,6 @@
 import {
   __resetAnalyticsForTests,
-  ANALYTICS_CONSENT_KEY,
-  denyAnalyticsConsent,
-  grantAnalyticsConsent,
-  revokeAnalyticsConsent,
+  initializeAnalytics,
   trackEvent,
   trackPageView,
 } from './analytics';
@@ -12,27 +9,41 @@ const dataLayerEntries = () => (window.dataLayer || []).map((entry) => Array.fro
 
 beforeEach(() => {
   __resetAnalyticsForTests();
-  window.localStorage.clear();
   window.__FIKA_CONFIG__ = { ga4MeasurementId: 'G-TEST123' };
   document.getElementById('fika-ga4-script')?.remove();
   delete window.gtag;
   delete window.dataLayer;
-  document.cookie.split(';').forEach((cookie) => {
-    const name = cookie.split('=')[0].trim();
-    document.cookie = `${name}=; Max-Age=0; path=/`;
-  });
 });
 
-test('does not load or replay interactions before consent, then sends one sanitized page view', () => {
-  trackPageView({ path: '/saved-timetables?private=value#section', title: 'Saved timetables' });
+test('remains disabled when no valid measurement ID is configured', () => {
+  window.__FIKA_CONFIG__ = { ga4MeasurementId: '' };
+
+  expect(initializeAnalytics()).toBe(false);
   expect(trackEvent('route_selected', { route_code: '214A' })).toBe(false);
   expect(document.getElementById('fika-ga4-script')).toBeNull();
+});
 
-  expect(grantAnalyticsConsent()).toBe(true);
-  expect(window.localStorage.getItem(ANALYTICS_CONSENT_KEY)).toBe('granted');
+test('loads automatically with privacy-limited storage and sends one sanitized page view', () => {
+  trackPageView({ path: '/saved-timetables?private=value#section', title: 'Saved timetables' });
+  expect(initializeAnalytics()).toBe(true);
   expect(document.getElementById('fika-ga4-script')).not.toBeNull();
 
-  const events = dataLayerEntries().filter(([command]) => command === 'event');
+  const commands = dataLayerEntries();
+  const consent = commands.find(([command]) => command === 'consent');
+  const config = commands.find(([command]) => command === 'config');
+  const events = commands.filter(([command]) => command === 'event');
+
+  expect(consent[2]).toMatchObject({
+    analytics_storage: 'granted',
+    ad_storage: 'denied',
+    ad_user_data: 'denied',
+    ad_personalization: 'denied',
+  });
+  expect(config[2]).toMatchObject({
+    send_page_view: false,
+    allow_google_signals: false,
+    allow_ad_personalization_signals: false,
+  });
   expect(events).toHaveLength(1);
   expect(events[0][1]).toBe('page_view');
   expect(events[0][2].page_path).toBe('/saved-timetables');
@@ -40,19 +51,4 @@ test('does not load or replay interactions before consent, then sends one saniti
 
   expect(trackPageView({ path: '/saved-timetables?another=value', title: 'Saved timetables' })).toBe(false);
   expect(dataLayerEntries().filter(([command]) => command === 'event')).toHaveLength(1);
-});
-
-test('rejection persists without loading Google and revocation expires GA cookies', () => {
-  denyAnalyticsConsent();
-  expect(window.localStorage.getItem(ANALYTICS_CONSENT_KEY)).toBe('denied');
-  expect(document.getElementById('fika-ga4-script')).toBeNull();
-
-  grantAnalyticsConsent();
-  document.cookie = '_ga=GA1.1.123; path=/';
-  expect(document.cookie).toContain('_ga=');
-
-  revokeAnalyticsConsent({ reload: false });
-  expect(window.localStorage.getItem(ANALYTICS_CONSENT_KEY)).toBe('denied');
-  expect(document.cookie).not.toContain('_ga=');
-  expect(trackEvent('route_search', { result_count: 1 })).toBe(false);
 });

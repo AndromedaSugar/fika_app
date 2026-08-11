@@ -591,15 +591,15 @@ const INFO_PAGES = {
     description: 'Read how Fika Timetables handles offline timetable caching, local browser storage, and timetable lookup privacy.',
     body: [
       'Fika Timetables stores viewed and saved timetables in your browser using IndexedDB so selected timetable data can be available offline.',
-      'With your permission, Fika Timetables uses Google Analytics 4 to measure page visits and interactions with route search, timetable filters, and offline saving. Google Analytics is not loaded until you accept analytics.',
-      'Fika does not send raw route-search text, stop names, timetable contents, contact details, or raw error messages to Google Analytics. Advertising storage, Google Signals, and ad personalization are disabled.',
-      'Your analytics choice is stored in this browser. You can reject analytics initially or change your choice later through the Analytics settings control on this page and in the site footer.',
-      'Analytics event-level data is configured for a 14-month retention period. Fika Timetables does not run third-party promotional networks or personalized marketing trackers.',
+      'Fika Timetables uses Google Analytics 4 to understand how visitors use timetable search, route pages, filters, and offline saving so the service can be maintained and improved. Fika relies on its legitimate interest in measuring and improving the service for this processing.',
+      'Google Analytics uses a first-party _ga cookie containing a pseudonymous client identifier to distinguish browsers and sessions. It also receives page and interaction events, device and browser details, and approximate location derived from an IP address. Google states that IP addresses are discarded before Analytics logs the data.',
+      'Fika does not send raw route-search text, stop names, timetable contents, contact details, URL query strings, or raw error messages to Google Analytics. Advertising storage, Google Signals, and ad personalization are disabled.',
+      'Analytics event-level data is configured for a 14-month retention period. You can block or delete analytics cookies through your browser settings and may contact hello@fika.net.za to object to this processing.',
+      'Fika Timetables does not run third-party promotional networks or personalized marketing trackers.',
       'You can manage or delete locally stored timetable data in your browser settings. Clearing site data may remove saved offline timetables.',
-      'The site does not require user accounts and does not ask for sensitive personal information. Contact hello@fikatimetables.co.za for privacy questions.',
+      'The site does not require user accounts and does not ask for sensitive personal information. Contact hello@fika.net.za for privacy questions.',
       'Route searches and saved timetable choices are handled in your browser unless they are needed to request timetable data from the server.',
     ],
-    showAnalyticsSettings: true,
   },
   '/terms': {
     title: 'Terms and Disclaimer | Fika Timetables',
@@ -1401,9 +1401,6 @@ function renderSiteFooter() {
     { href: '/contact', label: 'Contact' },
     { href: '/privacy-policy', label: 'Privacy Policy' },
     { href: '/terms', label: 'Terms' },
-    ...(getGa4MeasurementId()
-      ? [{ href: '/privacy-policy#analytics-settings', label: 'Analytics settings' }]
-      : []),
   ];
 
   return `
@@ -1422,9 +1419,6 @@ function renderInfoBody(page) {
         <p class="info-eyebrow">${escapeHtml(page.eyebrow)}</p>
         <h1>${escapeHtml(page.heading || page.title)}</h1>
         ${page.body.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')}
-        ${page.showAnalyticsSettings && getGa4MeasurementId()
-          ? '<p id="analytics-settings"><a href="/privacy-policy#analytics-settings">Open Analytics settings</a></p>'
-          : ''}
       </section>
       ${renderSiteFooter()}
     </main>

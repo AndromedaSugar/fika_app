@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import {
   __resetAnalyticsForTests,
-  grantAnalyticsConsent,
+  initializeAnalytics,
 } from './analytics';
 import SchedulesDropdown from './SchedulesDropdown';
 
@@ -16,7 +16,7 @@ beforeEach(() => {
   document.getElementById('fika-ga4-script')?.remove();
   delete window.gtag;
   delete window.dataLayer;
-  grantAnalyticsConsent();
+  initializeAnalytics();
 });
 
 afterEach(() => {

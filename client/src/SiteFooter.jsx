@@ -1,5 +1,4 @@
 import React from 'react';
-import { AnalyticsSettingsButton } from './AnalyticsConsent';
 
 export default function SiteFooter() {
   return (
@@ -12,7 +11,6 @@ export default function SiteFooter() {
       <a href="/contact">Contact</a>
       <a href="/privacy-policy">Privacy Policy</a>
       <a href="/terms">Terms</a>
-      <AnalyticsSettingsButton className="site-footer-button" />
     </footer>
   );
 }

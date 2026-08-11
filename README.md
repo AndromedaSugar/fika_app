@@ -42,11 +42,11 @@ Timetables pinned with **Save offline** appear at `/saved-timetables`. Saved rou
 
 Offline access requires at least one successful online visit on the browser. Removing a timetable from the saved hub unpins it but leaves the normal short-lived recent-view cache behavior intact.
 
-## Privacy-gated GA4 analytics
+## GA4 analytics
 
-Set `GA4_MEASUREMENT_ID` on the production web service to a valid GA4 web-stream ID such as `G-ABC123`. The server injects the ID at runtime; if it is absent or invalid, the Google tag and analytics consent controls remain disabled. Local CRA development can optionally use `REACT_APP_GA4_MEASUREMENT_ID`.
+Set `GA4_MEASUREMENT_ID` on the production web service to a valid GA4 web-stream ID such as `G-ABC123`. The server injects the ID at runtime; if it is absent or invalid, analytics remains disabled. Local CRA development can optionally use `REACT_APP_GA4_MEASUREMENT_ID`.
 
-GA4 loads only after a visitor selects **Accept analytics**. Advertising storage, Google Signals, and ad personalization remain disabled. Fika sends route codes and controlled interaction categories, but never raw search text, stop names, timetable contents, contact details, query strings, or raw errors.
+When configured, GA4 loads automatically and uses its first-party `_ga` cookie to distinguish browsers and sessions. Fika's privacy policy discloses this processing and its legitimate-interest basis. Advertising storage, Google Signals, and ad personalization remain disabled. Fika sends route codes and controlled interaction categories, but never raw search text, stop names, timetable contents, contact details, URL query strings, or raw errors.
 
 Configure the GA4 property as follows:
 
@@ -55,7 +55,7 @@ Configure the GA4 property as follows:
 - Register event dimensions for `agency`, `route_code`, `search_location`, `selection_source`, `query_length_bucket`, `data_source`, `online_state`, `saved_state`, `direction`, `service_day`, and `failure_type`.
 - Register numeric event metrics for `result_count` and `saved_count`.
 - Mark `timetable_viewed` as a key event, use 14-month event-data retention, and leave Google Signals and ad personalization disabled.
-- Verify the consent transition, single page views, and custom events in Tag Assistant or DebugView before using the production stream for reporting.
+- Verify single page views and custom events in Tag Assistant or DebugView before using the production stream for reporting.
 
 To seed all known numeric URLs from the pre-replacement backup into a target database, run from the parent project directory:
 

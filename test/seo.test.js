@@ -117,6 +117,21 @@ test('valid GA4 configuration is injected into rendered pages', () => {
   }
 });
 
+test('privacy policy discloses automatic GA4 behavior without presenting a consent control', () => {
+  const routeLayer = app._router.stack.find((layer) => layer.route?.path === '/privacy-policy');
+  const response = {
+    body: '',
+    send(value) { this.body = value; return this; },
+  };
+
+  routeLayer.route.stack[0].handle({}, response);
+
+  assert.match(response.body, /first-party _ga cookie/);
+  assert.match(response.body, /legitimate interest/);
+  assert.match(response.body, /Advertising storage, Google Signals, and ad personalization are disabled/);
+  assert.doesNotMatch(response.body, /Accept analytics|Analytics settings/);
+});
+
 test('saved timetables are noindex, excluded from the sitemap, and allow GA4 CSP endpoints', () => {
   const routeLayer = app._router.stack.find((layer) => layer.route?.path === '/saved-timetables');
   const response = {
