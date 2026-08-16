@@ -3,11 +3,12 @@ import {
   getAgencyDisplayName,
   getRouteIntentLabel,
   getRouteLabel,
+  getRouteTileLabel,
   getTimetablePath,
 } from './routeUtils';
 import { trackEvent } from './analytics';
 
-export default function RouteLinkList({ routes, emptyMessage, selectionSource }) {
+export default function RouteLinkList({ routes, emptyMessage, selectionSource, compact = false }) {
   if (!routes.length) {
     return <p>{emptyMessage}</p>;
   }
@@ -28,8 +29,10 @@ export default function RouteLinkList({ routes, emptyMessage, selectionSource })
             }
           }}
         >
-          <span>{getRouteIntentLabel(schedule)}</span>
-          <small>{getRouteLabel(schedule)} · {getAgencyDisplayName(schedule.agency)}</small>
+          <span>{compact ? getRouteTileLabel(schedule) : getRouteIntentLabel(schedule)}</span>
+          {!compact && (
+            <small>{getRouteLabel(schedule)} · {getAgencyDisplayName(schedule.agency)}</small>
+          )}
         </a>
       ))}
     </div>

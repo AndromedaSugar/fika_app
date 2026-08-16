@@ -63,6 +63,7 @@ export default function OperatorPage({ agency, schedules, loadingSchedules }) {
               routes={routes}
               emptyMessage="No routes are available for this operator yet."
               selectionSource="operator_page"
+              compact
             />
           )}
           {areas.length > 0 && (

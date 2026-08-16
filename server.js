@@ -683,6 +683,11 @@ function getRouteIntentLabel(route) {
   return `${agencyName}${code} ${endpoints} bus times`.replace(/\s+/g, ' ').trim();
 }
 
+function getRouteTileLabel(route) {
+  const code = route.code ? `${route.code} ` : '';
+  return `${code}${getRouteEndpoints(route).join(' to ')}`.replace(/\s+/g, ' ').trim();
+}
+
 function getRouteSeoTitle(route) {
   const agencyName = getAgencyDisplayName(route.agency);
   const code = route.code ? ` ${route.code}` : '';
@@ -1316,13 +1321,13 @@ function logSlowSeoRender(label, startedAt) {
   }
 }
 
-function renderRouteLinks(routes, className = 'seo-link-list') {
+function renderRouteLinks(routes, className = 'seo-link-list', compact = false) {
   if (!routes.length) {
     return '';
   }
 
   return `<ul class="${className}">${routes.map((route) => (
-    `<li><a href="${escapeHtml(getCanonicalTimetablePath(route))}">${escapeHtml(getRouteIntentLabel(route))}</a></li>`
+    `<li><a href="${escapeHtml(getCanonicalTimetablePath(route))}">${escapeHtml(compact ? getRouteTileLabel(route) : getRouteIntentLabel(route))}</a></li>`
   )).join('')}</ul>`;
 }
 
@@ -1511,7 +1516,7 @@ function renderOperatorBody(agency, routes, areas) {
         paragraphs: [
           `${routes.length} ${agencyName} route timetable${routes.length === 1 ? '' : 's'} are currently available in this index.`,
         ],
-        html: renderRouteLinks(routes),
+        html: renderRouteLinks(routes, 'seo-link-list', true),
       },
       {
         title: `${agencyName} Areas And Stops`,

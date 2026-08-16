@@ -122,6 +122,13 @@ export const getRouteIntentLabel = (route) => {
     .trim();
 };
 
+export const getRouteTileLabel = (route) => {
+  const code = route?.code ? `${route.code} ` : '';
+  return `${code}${getRouteEndpoints(route).join(' to ')}`
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 export const getRouteSeoTitle = (route) => {
   const code = route?.code ? ` ${route.code}` : '';
   return `${getAgencyDisplayName(route?.agency)}${code} ${getRouteEndpoints(route).join('–')} Bus Times`
