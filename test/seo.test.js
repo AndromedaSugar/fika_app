@@ -128,6 +128,7 @@ test('privacy policy discloses automatic GA4 behavior without presenting a conse
 
   assert.match(response.body, /first-party _ga cookie/);
   assert.match(response.body, /legitimate interest/);
+  assert.match(response.body, /stores that dismissal choice in this browser/);
   assert.match(response.body, /Advertising storage, Google Signals, and ad personalization are disabled/);
   assert.doesNotMatch(response.body, /Accept analytics|Analytics settings/);
 });

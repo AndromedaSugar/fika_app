@@ -30,6 +30,7 @@ export const INFO_PAGES = {
       'Fika Timetables uses Google Analytics 4 to understand how visitors use timetable search, route pages, filters, and offline saving so the service can be maintained and improved. Fika relies on its legitimate interest in measuring and improving the service for this processing.',
       'Google Analytics uses a first-party _ga cookie containing a pseudonymous client identifier to distinguish browsers and sessions. It also receives page and interaction events, device and browser details, and approximate location derived from an IP address. Google states that IP addresses are discarded before Analytics logs the data.',
       'Fika does not send raw route-search text, stop names, timetable contents, contact details, URL query strings, or raw error messages to Google Analytics. Advertising storage, Google Signals, and ad personalization are disabled.',
+      'If you close the analytics notice, Fika stores that dismissal choice in this browser so the notice does not appear on every visit.',
       'Analytics event-level data is configured for a 14-month retention period. You can block or delete analytics cookies through your browser settings and may contact hello@fika.net.za to object to this processing.',
       'Fika Timetables does not run third-party promotional networks or personalized marketing trackers.',
       'You can manage or delete locally stored timetable data in your browser settings. Clearing site data may remove saved offline timetables.',

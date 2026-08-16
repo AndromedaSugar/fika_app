@@ -617,6 +617,49 @@ code {
   margin: 0 4px 10px;
 }
 
+.analytics-notice {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  bottom: 16px;
+  box-shadow: var(--shadow-card-strong);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  left: 50%;
+  max-width: 760px;
+  padding: 14px 16px;
+  position: fixed;
+  transform: translateX(-50%);
+  width: calc(100% - 32px);
+  z-index: 2100;
+}
+
+.analytics-notice p {
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.analytics-notice a {
+  color: var(--color-brand);
+  font-weight: 800;
+}
+
+.analytics-notice button {
+  background: var(--color-brand);
+  border: 1px solid var(--color-brand);
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-weight: 800;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
 .info-page {
   flex: 1;
   min-height: 0;
@@ -1521,6 +1564,18 @@ input:checked + label {
   .site-footer {
     justify-content: flex-start;
     padding: 12px 14px 16px;
+  }
+
+  .analytics-notice {
+    align-items: stretch;
+    bottom: 10px;
+    flex-direction: column;
+    gap: 10px;
+    width: calc(100% - 20px);
+  }
+
+  .analytics-notice button {
+    width: 100%;
   }
 
   .landing-hero {

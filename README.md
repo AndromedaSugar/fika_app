@@ -46,7 +46,7 @@ Offline access requires at least one successful online visit on the browser. Rem
 
 Set `GA4_MEASUREMENT_ID` on the production web service to a valid GA4 web-stream ID such as `G-ABC123`. The server injects the ID at runtime; if it is absent or invalid, analytics remains disabled. Local CRA development can optionally use `REACT_APP_GA4_MEASUREMENT_ID`.
 
-When configured, GA4 loads automatically and uses its first-party `_ga` cookie to distinguish browsers and sessions. Fika's privacy policy discloses this processing and its legitimate-interest basis. Advertising storage, Google Signals, and ad personalization remain disabled. Fika sends route codes and controlled interaction categories, but never raw search text, stop names, timetable contents, contact details, URL query strings, or raw errors.
+When configured, GA4 loads automatically and uses its first-party `_ga` cookie to distinguish browsers and sessions. An informational analytics notice links to the privacy policy and remembers when it has been dismissed in that browser. Fika's privacy policy discloses this processing and its legitimate-interest basis. Advertising storage, Google Signals, and ad personalization remain disabled. Fika sends route codes and controlled interaction categories, but never raw search text, stop names, timetable contents, contact details, URL query strings, or raw errors.
 
 Configure the GA4 property as follows:
 
