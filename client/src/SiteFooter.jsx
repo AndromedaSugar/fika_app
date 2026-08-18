@@ -8,6 +8,7 @@ export default function SiteFooter() {
       <a href="/areas">Areas</a>
       <a href="/saved-timetables">Saved</a>
       <a href="/about">About</a>
+      <a href="/data-reliability">Data reliability</a>
       <a href="/contact">Contact</a>
       <a href="/privacy-policy">Privacy Policy</a>
       <a href="/terms">Terms</a>

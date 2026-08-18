@@ -9,8 +9,8 @@ easier than downloading static PDFs from transit websites.
 - 🔁 **Route Direction Toggle**: Flip between outbound and return directions for any route using a convenient radio button.
 - 🧭 **Cleaner UI**: No more sifting through PDF documents—FikaApp presents the data in a clean and readable format.
 - 📱 **Saved Offline Timetables**: Pin timetable data in the browser and reopen it from one offline-ready hub.
-- 🚌 **Current Support**: Currently displays **MyCiTi Bus** timetables.
-- 🛠️ **Coming Soon**: Integration of **Golden Arrow** and **train** schedules.
+- 🚌 **Current Support**: Displays **MyCiTi** and **Golden Arrow** timetables.
+- 🛠️ **Coming Soon**: Integration of train schedules.
 
 ## 🛠 Tech Stack
 
@@ -19,7 +19,7 @@ easier than downloading static PDFs from transit websites.
 
 ## 📦 Future Plans
 
-- Add support for Golden Arrow and train timetables.
+- Add support for train timetables.
 - Mobile-first UX enhancements.
 
 ## Preview 
@@ -41,6 +41,74 @@ Numeric database IDs remain internal to `/schedule_times/:id` and `/api/v2/sched
 Timetables pinned with **Save offline** appear at `/saved-timetables`. Saved route metadata and timetable payloads remain in that browser's IndexedDB; they are not attached to an account or synced between devices. The production service worker caches only the application shell and static assets so the saved hub and cached timetable URLs can cold-start without a network connection. API timetable payloads are not stored in Cache Storage.
 
 Offline access requires at least one successful online visit on the browser. Removing a timetable from the saved hub unpins it but leaves the normal short-lived recent-view cache behavior intact.
+
+## Timetable source verification
+
+The maintained verification implementation lives in `timetable_verification/`. It keeps the operator-specific PDF layouts behind `MyCitiAdapter` and `GabsAdapter`, while sharing HTTP pacing, SHA-256 fingerprinting, canonical data, comparisons, PostgreSQL persistence, and audit planning. This keeps Python - the language already used by the original scrapers and extractors - without turning the two very different PDF formats into one large parser class.
+
+The daily workflow is deliberately review-gated:
+
+1. Crawl each official catalogue once, sequentially, with an identifying user agent, at least 1.5 seconds plus jitter between requests to the same host, bounded retries, and `Retry-After` support.
+2. Download every PDF even when its filename is unchanged and calculate SHA-256 over the actual bytes.
+3. Parse to deterministic canonical JSON and calculate a second content hash. Parser failures and zero-timetable PDFs are quarantined with the captured PDF; they cannot be published.
+4. Store the registry, immutable PDF evidence, extraction, departure-count/time diff, check result, and dated event in PostgreSQL. A changed version becomes `changed_review_required`; the job never writes passenger-facing timetable rows.
+5. Review the exact captured PDF and comparison at `/admin/timetable-reliability`. `Approve and publish` applies the candidate in one transaction and clears the affected API cache. Withdrawal is also explicit and attributable.
+6. Build one stratified human audit queue per week, targeting 200 departure cells and enforcing at least 100. The queue covers both operators, direction ordinals, service days, first and last departures, and footnoted trips when those categories are available.
+
+Golden Arrow regular and public-holiday PDFs can describe the same directions. Publication therefore composes independent `weekday`, `saturday`, `sunday`, and `public_holiday` families with trip-level source/version provenance; approving a holiday PDF cannot erase regular service. A later withdrawal restores the next-newest approved contribution for that family.
+
+### Accuracy claim
+
+**Source accuracy** means Fika displays the timetable published in the cited operator PDF. The registry, review history, and weekly count are evidence for that claim, for example: `198 of 200 sampled departures matched the cited operator PDF.`
+
+**Operational punctuality** means the bus actually arrives at that time. Fika does not currently measure live vehicle operations and does not claim to prove punctuality.
+
+### Local verification
+
+Python and dependency versions are pinned in `.python-version` and `requirements.txt`.
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m unittest discover -s tests_python -v
+```
+
+Exercise a small live source sample without database writes:
+
+```bash
+.venv/bin/python -m timetable_verification.check_sources \
+  --dry-run --operator myciti --limit 1
+```
+
+Run the real checker only against the intended database:
+
+```bash
+DATABASE_URL='postgresql://...' \
+  .venv/bin/python -m timetable_verification.check_sources
+```
+
+When parser or canonical-import behavior changes, update `PARSER_VERSION` or `IMPORT_VERSION` in `timetable_verification/__init__.py`. The same PDF will then be re-extracted and held for review rather than silently treated as unchanged.
+
+### Render and review runbook
+
+`render.yaml` defines `fika-timetable-source-daily` at `01:17 UTC` (`03:17` in Johannesburg). It is a separate native Python cron from the Node web service and weekly Search Console job. Render cron files are ephemeral, so raw versioned PDFs and evidence are stored in PostgreSQL rather than on the cron filesystem.
+
+Set these values:
+
+- Daily cron: `DATABASE_URL`.
+- Web service: `DATABASE_URL`, `TIMETABLE_ADMIN_USERNAME`, and `TIMETABLE_ADMIN_PASSWORD`. If the timetable credentials are absent, the existing `SEO_REPORT_USERNAME` and `SEO_REPORT_PASSWORD` are used.
+- Optional pacing controls: `TIMETABLE_REQUEST_INTERVAL_SECONDS` (never below 1.5), `TIMETABLE_REQUEST_JITTER_SECONDS`, `TIMETABLE_HTTP_RETRIES`, and `TIMETABLE_HTTP_TIMEOUT_SECONDS`.
+- Optional audit target: `TIMETABLE_AUDIT_SAMPLE_SIZE` (default 200; never below 100).
+
+Operational steps:
+
+1. Inspect a non-successful daily run and every `changed_review_required` or missing source in the private review page.
+2. Compare the stored PDF, route/directions, service-day coverage, effective dates, departure counts, changed times, stops, and footnotes. Record a meaningful review note before approval.
+3. Do not approve a parser-failure candidate. Fix the parser, bump its version, run the checker again, and review the new extraction.
+4. Complete every weekly audit sample in the private page. The public `/data-reliability` page shows the exact match count only after all samples are reviewed; any mismatch marks its sources for review.
+5. Treat `/data-reliability` warnings as evidence gaps. A failed/old daily check, an audit older than ten days, or a timetable publication newer than the audit makes the public evidence non-current.
+
+The original sibling scripts are useful historical references, but they sit outside this Git/Render service root and skip already named files. Do not schedule `refresh_fika_timetables.sh`: it deletes production schedules before reimporting and bypasses the review gate. The package and approval workflow above are the maintained path.
 
 ## GA4 analytics
 

@@ -6,6 +6,7 @@ const NAV_LINKS = [
     { href: '/operators/golden-arrow', label: 'Golden Arrow' },
     { href: '/areas', label: 'Areas' },
     { href: '/saved-timetables', label: 'Saved' },
+    { href: '/data-reliability', label: 'Reliability' },
     { href: '/contact', label: 'Contact' },
 ];
 

@@ -6,6 +6,7 @@ import Navbar from './Navbar';
 import { AreaPage, AreasIndexPage } from './AreaPages';
 import InfoPage, { INFO_PAGES } from './InfoPage';
 import OperatorPage from './OperatorPage';
+import ReliabilityPage from './ReliabilityPage';
 import SiteFooter from './SiteFooter';
 import SavedTimetablesPage from './SavedTimetablesPage';
 import {
@@ -1003,11 +1004,14 @@ function App() {
   const areaSlug = getAreaSlugFromPath(currentPath);
   const isAreasIndex = isAreasIndexPath(currentPath);
   const isSavedTimetablesPage = currentPath === '/saved-timetables';
+  const isReliabilityPage = currentPath === '/data-reliability';
 
   return (
     <div className="App">
       <Navbar />
-      {isSavedTimetablesPage ? (
+      {isReliabilityPage ? (
+        <ReliabilityPage />
+      ) : isSavedTimetablesPage ? (
         <SavedTimetablesPage
           schedules={schedules}
           onViewRoute={(savedRoute) => selectRoute(savedRoute)}
