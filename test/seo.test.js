@@ -10,11 +10,18 @@ const {
   getAreaNamesForRoute,
   getAreaSeo,
   getGa4MeasurementId,
+  isAllowedCorsOrigin,
   getRouteSeoTitle,
   getTimetableDescription,
   getTimetableSeo,
   renderIndexHtml,
 } = require('../server');
+
+test('production CORS accepts both first-party Fika hostnames', () => {
+  assert.equal(isAllowedCorsOrigin('https://www.fika.net.za', { isProduction: true }), true);
+  assert.equal(isAllowedCorsOrigin('https://fika.net.za', { isProduction: true }), true);
+  assert.equal(isAllowedCorsOrigin('https://attacker.example', { isProduction: true }), false);
+});
 
 const route = {
   id: 300,

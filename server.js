@@ -128,7 +128,18 @@ const developmentOrigins = new Set([
   `http://localhost:${PORT}`,
   `http://127.0.0.1:${PORT}`,
 ]);
-const allowedOrigins = new Set([siteOrigin, ...developmentOrigins]);
+// CANONICAL_SITE_URL can be configured as either the apex or www hostname.
+// Both are first-party Fika origins and users can legitimately arrive at the
+// other hostname before a redirect or while an older page is still open.
+const productionOrigins = new Set([
+  new URL(PRODUCTION_SITE_URL).origin,
+  'https://fika.net.za',
+]);
+const allowedOrigins = new Set([siteOrigin, ...productionOrigins, ...developmentOrigins]);
+
+function isAllowedCorsOrigin(origin, { isProduction = IS_PRODUCTION } = {}) {
+  return !origin || !isProduction || allowedOrigins.has(origin);
+}
 const CONTENT_SECURITY_POLICY_DIRECTIVES = {
   defaultSrc: ["'self'"],
   baseUri: ["'self'"],
@@ -216,7 +227,7 @@ app.use(helmet({
 }));
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || !IS_PRODUCTION || allowedOrigins.has(origin)) {
+    if (isAllowedCorsOrigin(origin)) {
       callback(null, true);
       return;
     }
@@ -2010,6 +2021,7 @@ module.exports = {
   getCanonicalAreaPath,
   getFeaturedAreas,
   getGa4MeasurementId,
+  isAllowedCorsOrigin,
   getRouteSeoTitle,
   getTimetableDescription,
   getTimetableSeo,

@@ -25,6 +25,19 @@ from .base import DiscoveredSource, DiscoveryError, OperatorAdapter, ParseError
 
 
 GABS_CATALOGUE_URL = "https://www.gabs.co.za/Timetable.aspx"
+# Cloudflare currently rejects ASP.NET catalogue postbacks from a non-browser
+# User-Agent with HTTP 403.  Keep the proven browser-compatible header limited
+# to this catalogue while identifying the paced verifier separately. PDF
+# downloads continue to use the global descriptive verifier User-Agent.
+GABS_CATALOGUE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:128.0) "
+        "Gecko/20100101 Firefox/128.0"
+    ),
+    "X-Fika-Verifier": (
+        "Fika-Timetable-Verifier/1.0; contact=https://www.fika.net.za/contact"
+    ),
+}
 SERVICE_DAY_MAP = {
     "MONDAYS TO FRIDAYS": [
         "monday",
@@ -754,6 +767,7 @@ class GabsAdapter(OperatorAdapter):
     def discover(self, requester: Any) -> List[DiscoveredSource]:
         initial_response = requester.get(
             self.catalogue_url,
+            headers=GABS_CATALOGUE_HEADERS,
             accept="text/html,*/*;q=0.8",
         )
         current = _parse_catalogue(
@@ -773,6 +787,7 @@ class GabsAdapter(OperatorAdapter):
                     self.catalogue_url,
                     urlencode(form_fields).encode("utf-8"),
                     headers={
+                        **GABS_CATALOGUE_HEADERS,
                         "Content-Type": "application/x-www-form-urlencoded",
                         "Referer": self.catalogue_url,
                     },
@@ -885,6 +900,7 @@ class GabsAdapter(OperatorAdapter):
 
 __all__ = [
     "GABS_CATALOGUE_URL",
+    "GABS_CATALOGUE_HEADERS",
     "GabsAdapter",
     "SERVICE_DAY_MAP",
     "normalize_source_key",

@@ -6,6 +6,7 @@ from pathlib import Path
 from timetable_verification.adapters import DiscoveredSource, GabsAdapter, MyCitiAdapter
 from timetable_verification.adapters.base import ParseError
 from timetable_verification.adapters.gabs import (
+    GABS_CATALOGUE_HEADERS,
     _deduplicate_identical_timetables,
     _footnote_service_days,
     _select_preferred_source,
@@ -22,6 +23,11 @@ def fixture_bytes(name):
 
 
 class AdapterUnitTest(unittest.TestCase):
+    def test_gabs_catalogue_uses_browser_compatible_identified_headers(self):
+        self.assertTrue(GABS_CATALOGUE_HEADERS["User-Agent"].startswith("Mozilla/5.0"))
+        self.assertIn("Fika-Timetable-Verifier", GABS_CATALOGUE_HEADERS["X-Fika-Verifier"])
+        self.assertIn("fika.net.za/contact", GABS_CATALOGUE_HEADERS["X-Fika-Verifier"])
+
     def test_myciti_source_keys_support_feeder_and_express_codes(self):
         self.assertEqual(
             source_key_from_url(

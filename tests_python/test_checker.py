@@ -78,8 +78,9 @@ class FakeRequester:
 
 
 class FakeRepository:
-    def __init__(self, *, severe_drop=False):
+    def __init__(self, *, severe_drop=False, audit_result=None):
         self.severe_drop = severe_drop
+        self.audit_result = audit_result or {"status": "existing", "audit_run_id": 8}
         self.results = []
         self.parse_failures = []
         self.staged = []
@@ -117,13 +118,29 @@ class FakeRepository:
         return 0
 
     def ensure_weekly_audit_plan(self, **_kwargs):
-        return {"status": "existing", "audit_run_id": 8}
+        return self.audit_result
 
     def record_event(self, **_kwargs):
         pass
 
 
 class DailyCheckerTest(unittest.TestCase):
+    def test_bootstrap_audit_shortfall_is_recorded_without_failing_source_check(self):
+        repository = FakeRepository(audit_result={
+            "status": "shortfall",
+            "shortfalls": ["approved and published samples are not available"],
+        })
+        checker = DailyChecker(
+            repository=repository,
+            requester=FakeRequester(),
+            adapters=[FakeAdapter("MyCiti")],
+        )
+
+        result = checker.run()
+
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["operator_results"]["weekly_audit"]["status"], "shortfall")
+
     def test_one_operator_discovery_failure_does_not_stop_the_other(self):
         repository = FakeRepository()
         checker = DailyChecker(
