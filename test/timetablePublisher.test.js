@@ -402,6 +402,40 @@ test('MyCiTi route-scope approval replaces all directions and commits metadata a
     && call.params[1] === 'schedules:v1'));
 });
 
+test('MyCiTi accepts bidirectional routes whose headings repeat the route code', () => {
+  const extraction = canonicalExtraction({
+    operator: 'MyCiti',
+    routeCode: '242',
+    directionCode: '242',
+    sourceKey: '242',
+    effectiveDate: null,
+  });
+  extraction.routes[0].directions.push({
+    ...structuredClone(extraction.routes[0].directions[0]),
+    name: 'To Atlantis',
+  });
+
+  assert.equal(validateCanonicalExtraction(extraction), extraction);
+});
+
+test('MyCiTi still rejects a genuinely duplicated direction name', () => {
+  const extraction = canonicalExtraction({
+    operator: 'MyCiti',
+    routeCode: '242',
+    directionCode: '242',
+    sourceKey: '242',
+    effectiveDate: null,
+  });
+  extraction.routes[0].directions.push(
+    structuredClone(extraction.routes[0].directions[0])
+  );
+
+  assert.throws(
+    () => validateCanonicalExtraction(extraction),
+    /directions\[1\]: duplicates another direction/
+  );
+});
+
 test('GABS approval replaces only candidate service families and preserves regular plus public-holiday coexistence', async () => {
   const publicHoliday = canonicalExtraction({
     operator: 'GABS',
