@@ -15,12 +15,21 @@ const {
   getTimetableDescription,
   getTimetableSeo,
   renderIndexHtml,
+  shouldApplyCors,
 } = require('../server');
 
 test('production CORS accepts both first-party Fika hostnames', () => {
   assert.equal(isAllowedCorsOrigin('https://www.fika.net.za', { isProduction: true }), true);
   assert.equal(isAllowedCorsOrigin('https://fika.net.za', { isProduction: true }), true);
   assert.equal(isAllowedCorsOrigin('https://attacker.example', { isProduction: true }), false);
+});
+
+test('CORS does not intercept authenticated timetable review forms', () => {
+  assert.equal(shouldApplyCors('/admin/timetable-reliability'), false);
+  assert.equal(shouldApplyCors('/admin/timetable-reliability/sources/38/approve'), false);
+  assert.equal(shouldApplyCors('/admin/timetable-reliability/versions/38/comparison'), false);
+  assert.equal(shouldApplyCors('/api/reliability'), true);
+  assert.equal(shouldApplyCors('/schedules'), true);
 });
 
 const route = {

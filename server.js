@@ -140,6 +140,16 @@ const allowedOrigins = new Set([siteOrigin, ...productionOrigins, ...development
 function isAllowedCorsOrigin(origin, { isProduction = IS_PRODUCTION } = {}) {
   return !origin || !isProduction || allowedOrigins.has(origin);
 }
+
+function shouldApplyCors(requestPath) {
+  // The reliability console is server-rendered and protected by Basic auth
+  // plus candidate-specific HMAC action tokens. CORS is an API response policy
+  // and must not sit in front of these ordinary HTML form submissions.
+  return !(
+    requestPath === '/admin/timetable-reliability' ||
+    requestPath.startsWith('/admin/timetable-reliability/')
+  );
+}
 const CONTENT_SECURITY_POLICY_DIRECTIVES = {
   defaultSrc: ["'self'"],
   baseUri: ["'self'"],
@@ -225,7 +235,7 @@ app.use(helmet({
     directives: CONTENT_SECURITY_POLICY_DIRECTIVES,
   },
 }));
-app.use(cors({
+const corsMiddleware = cors({
   origin(origin, callback) {
     if (isAllowedCorsOrigin(origin)) {
       callback(null, true);
@@ -234,7 +244,14 @@ app.use(cors({
 
     callback(new Error('Not allowed by CORS'));
   },
-}));
+});
+app.use((req, res, next) => {
+  if (!shouldApplyCors(req.path)) {
+    next();
+    return;
+  }
+  corsMiddleware(req, res, next);
+});
 
 app.use((req, res, next) => {
   if (!shouldLogRequest(req)) {
@@ -2026,5 +2043,6 @@ module.exports = {
   getTimetableDescription,
   getTimetableSeo,
   renderIndexHtml,
+  shouldApplyCors,
   startServer,
 };
