@@ -1,7 +1,12 @@
 import copy
 import unittest
 
-from timetable_verification.canonical import canonical_json_bytes, content_sha256
+from timetable_verification.canonical import (
+    CanonicalError,
+    canonical_json_bytes,
+    content_sha256,
+    validate_extraction,
+)
 from timetable_verification.diff import compare_extractions
 
 
@@ -98,6 +103,29 @@ class CanonicalAndDiffTest(unittest.TestCase):
         comparison = compare_extractions(previous, current)
         self.assertEqual(comparison["changed_time_count"], 0)
         self.assertEqual(comparison["removed_time_count"], 1)
+
+    def test_duplicate_stop_names_are_rejected_before_review(self):
+        candidate = extraction()
+        duplicate = copy.deepcopy(
+            candidate["routes"][0]["directions"][0]["services"][0]["trips"][0][
+                "times"
+            ][0]
+        )
+        duplicate.update(
+            {
+                "sequence": 2,
+                "stop_name": "  ORIGIN  ",
+                "time": None,
+                "raw_time": "--",
+                "stop_time_type": "not_served",
+            }
+        )
+        candidate["routes"][0]["directions"][0]["services"][0]["trips"][0][
+            "times"
+        ].append(duplicate)
+
+        with self.assertRaisesRegex(CanonicalError, "stop names must be unique"):
+            validate_extraction(candidate)
 
 
 if __name__ == "__main__":

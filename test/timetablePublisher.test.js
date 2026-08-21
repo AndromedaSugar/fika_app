@@ -436,6 +436,59 @@ test('MyCiTi still rejects a genuinely duplicated direction name', () => {
   );
 });
 
+test('canonical validation rejects duplicate stops within a trip after name normalization', () => {
+  const extraction = canonicalExtraction();
+  extraction.routes[0].directions[0].services[0].trips[0].times.push({
+    sequence: 2,
+    stop_name: '  stop   a  ',
+    time: null,
+    raw_time: '--',
+    stop_time_type: 'not_served',
+  });
+
+  assert.throws(
+    () => validateCanonicalExtraction(extraction),
+    /times\[2\]\.stop_name.*duplicates.*times\[0\]\.stop_name after case\/whitespace normalization/
+  );
+});
+
+test('canonical validation requires one ordered stop vector within each service', () => {
+  const extraction = canonicalExtraction();
+  const service = extraction.routes[0].directions[0].services[0];
+  const secondTrip = structuredClone(service.trips[0]);
+  [secondTrip.times[0].stop_name, secondTrip.times[1].stop_name]
+    = [secondTrip.times[1].stop_name, secondTrip.times[0].stop_name];
+  service.trips.push(secondTrip);
+
+  assert.throws(
+    () => validateCanonicalExtraction(extraction),
+    /trips\[1\]\.times.*same ordered stop vector as.*trips\[0\]\.times/
+  );
+});
+
+test('canonical validation allows different stop vectors in different services', () => {
+  const extraction = canonicalExtraction();
+  const direction = extraction.routes[0].directions[0];
+  direction.services.push({
+    label: 'SATURDAYS',
+    service_days: ['saturday'],
+    footnotes: [],
+    trips: [{
+      footnote_markers: [],
+      service_days: ['saturday'],
+      times: [{
+        sequence: 0,
+        stop_name: 'Weekend Stop',
+        time: '06:00',
+        raw_time: '06:00',
+        stop_time_type: 'scheduled',
+      }],
+    }],
+  });
+
+  assert.equal(validateCanonicalExtraction(extraction), extraction);
+});
+
 test('GABS approval replaces only candidate service families and preserves regular plus public-holiday coexistence', async () => {
   const publicHoliday = canonicalExtraction({
     operator: 'GABS',

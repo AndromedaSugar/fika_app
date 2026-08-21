@@ -132,7 +132,13 @@ class TimetableRepository:
                     (error[:10000], run_id),
                 )
 
-    def upsert_discovered_source(self, source: DiscoveredSource) -> Mapping[str, Any]:
+    def upsert_discovered_source(
+        self,
+        source: DiscoveredSource,
+        *,
+        parser_version: Optional[str] = None,
+    ) -> Mapping[str, Any]:
+        active_parser_version = parser_version or self.parser_version
         with self.connection:
             with self.connection.cursor(
                 cursor_factory=psycopg2.extras.RealDictCursor
@@ -160,7 +166,7 @@ class TimetableRepository:
                         source.source_key,
                         source.route_name_hint,
                         source.url,
-                        self.parser_version,
+                        active_parser_version,
                         self.import_version,
                     ),
                 )
@@ -178,7 +184,9 @@ class TimetableRepository:
         extraction: Dict[str, Any],
         http_etag: Optional[str],
         http_last_modified: Optional[str],
+        parser_version: Optional[str] = None,
     ) -> StagedVersion:
+        active_parser_version = parser_version or self.parser_version
         metadata = extraction_metadata(extraction)
         with self.connection:
             with self.connection.cursor(
@@ -205,7 +213,7 @@ class TimetableRepository:
                     (
                         source_id,
                         pdf_sha256,
-                        self.parser_version,
+                        active_parser_version,
                         self.import_version,
                     ),
                 )
@@ -218,17 +226,10 @@ class TimetableRepository:
                     )
                     if value is not None
                 }
-                is_current_match = bool(
-                    matching_version
-                    and int(matching_version["id"]) in current_ids
-                    and source_row.get("status") != "withdrawn"
-                    and source_row.get("current_pdf_sha256") == pdf_sha256
-                    and source_row.get("current_content_sha256") == content_sha256
-                    and source_row.get("parser_version") == self.parser_version
-                    and source_row.get("import_version") == self.import_version
-                )
-                if is_current_match:
-                    version_id = int(matching_version["id"])
+
+                def missing_reappearance_details(
+                    version: Mapping[str, Any],
+                ) -> Dict[str, Any]:
                     missing_checks = int(
                         source_row.get("consecutive_missing_checks") or 0
                     )
@@ -266,9 +267,51 @@ class TimetableRepository:
                         and status_before_missing == "verified"
                         and not audit_mismatch_since_missing
                         and source_row.get("pending_version_id") is None
-                        and source_row.get("approved_version_id") == version_id
-                        and matching_version.get("review_status") == "approved"
+                        and source_row.get("approved_version_id") == int(version["id"])
+                        and version.get("review_status") == "approved"
                     )
+                    return {
+                        "consecutive_missing_checks": missing_checks,
+                        "status_before_missing": status_before_missing,
+                        "audit_mismatch_since_missing": audit_mismatch_since_missing,
+                        "restored_verified": restore_verified,
+                    }
+
+                def record_missing_reappearance(
+                    version_id: int,
+                    details: Mapping[str, Any],
+                ) -> None:
+                    if not details["consecutive_missing_checks"]:
+                        return
+                    cursor.execute(
+                        """
+                        INSERT INTO timetable_source_events (
+                          source_id, source_version_id, check_run_id,
+                          event_type, details
+                        ) VALUES (
+                          %s, %s, %s, 'source_reappeared_unchanged', %s
+                        )
+                        """,
+                        (
+                            source_id,
+                            version_id,
+                            run_id,
+                            psycopg2.extras.Json(dict(details)),
+                        ),
+                    )
+
+                is_current_match = bool(
+                    matching_version
+                    and int(matching_version["id"]) in current_ids
+                    and source_row.get("status") != "withdrawn"
+                    and source_row.get("current_pdf_sha256") == pdf_sha256
+                    and source_row.get("current_content_sha256") == content_sha256
+                    and source_row.get("parser_version") == active_parser_version
+                    and source_row.get("import_version") == self.import_version
+                )
+                if is_current_match:
+                    version_id = int(matching_version["id"])
+                    reappearance = missing_reappearance_details(matching_version)
                     cursor.execute(
                         """
                         UPDATE timetable_source_versions
@@ -288,34 +331,9 @@ class TimetableRepository:
                             updated_at = now()
                         WHERE id = %s
                         """,
-                        (source.url, restore_verified, source_id),
+                        (source.url, reappearance["restored_verified"], source_id),
                     )
-                    if missing_checks:
-                        cursor.execute(
-                            """
-                            INSERT INTO timetable_source_events (
-                              source_id, source_version_id, check_run_id,
-                              event_type, details
-                            ) VALUES (
-                              %s, %s, %s, 'source_reappeared_unchanged', %s
-                            )
-                            """,
-                            (
-                                source_id,
-                                version_id,
-                                run_id,
-                                psycopg2.extras.Json(
-                                    {
-                                        "consecutive_missing_checks": missing_checks,
-                                        "status_before_missing": status_before_missing,
-                                        "audit_mismatch_since_missing": (
-                                            audit_mismatch_since_missing
-                                        ),
-                                        "restored_verified": restore_verified,
-                                    }
-                                ),
-                            ),
-                        )
+                    record_missing_reappearance(version_id, reappearance)
                     return StagedVersion(
                         source_id=source_id,
                         version_id=version_id,
@@ -330,14 +348,20 @@ class TimetableRepository:
                 baseline = None
                 if baseline_id:
                     cursor.execute(
-                        "SELECT id, extraction FROM timetable_source_versions WHERE id = %s",
+                        """
+                        SELECT id, pdf_sha256, content_sha256, parser_version,
+                               import_version, extraction, review_status
+                        FROM timetable_source_versions
+                        WHERE id = %s
+                        """,
                         (baseline_id,),
                     )
                     baseline = cursor.fetchone()
                 if baseline is None:
                     cursor.execute(
                         """
-                        SELECT id, extraction
+                        SELECT id, pdf_sha256, content_sha256, parser_version,
+                               import_version, extraction, review_status
                         FROM timetable_source_versions
                         WHERE source_id = %s
                         ORDER BY first_downloaded_at DESC, id DESC
@@ -355,6 +379,83 @@ class TimetableRepository:
                     and int(baseline["id"]) == int(matching_version["id"])
                 ):
                     baseline = None
+                parser_only_equivalent = bool(
+                    baseline
+                    and not matching_version
+                    and int(baseline["id"]) in current_ids
+                    and source_row.get("status") != "withdrawn"
+                    and baseline.get("pdf_sha256") == pdf_sha256
+                    and baseline.get("content_sha256") == content_sha256
+                    and baseline.get("import_version") == self.import_version
+                    and source_row.get("current_pdf_sha256") == pdf_sha256
+                    and source_row.get("current_content_sha256") == content_sha256
+                )
+                if parser_only_equivalent:
+                    version_id = int(baseline["id"])
+                    reappearance = missing_reappearance_details(baseline)
+                    cursor.execute(
+                        """
+                        UPDATE timetable_source_versions
+                        SET last_downloaded_at = now(), http_etag = %s,
+                            http_last_modified = %s
+                        WHERE id = %s
+                        """,
+                        (http_etag, http_last_modified, version_id),
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE timetable_sources
+                        SET last_downloaded_at = now(), last_seen_at = now(),
+                            official_source_url = %s,
+                            consecutive_missing_checks = 0,
+                            status = CASE WHEN %s THEN 'verified' ELSE status END,
+                            updated_at = now()
+                        WHERE id = %s
+                        """,
+                        (source.url, reappearance["restored_verified"], source_id),
+                    )
+                    record_missing_reappearance(version_id, reappearance)
+                    cursor.execute(
+                        """
+                        INSERT INTO timetable_source_events (
+                          source_id, source_version_id, check_run_id,
+                          event_type, details
+                        )
+                        SELECT %s, %s, %s, 'source_reparsed_unchanged', %s
+                        WHERE NOT EXISTS (
+                          SELECT 1
+                          FROM timetable_source_events
+                          WHERE source_id = %s
+                            AND source_version_id = %s
+                            AND event_type = 'source_reparsed_unchanged'
+                            AND details->>'parser_version' = %s
+                        )
+                        """,
+                        (
+                            source_id,
+                            version_id,
+                            run_id,
+                            psycopg2.extras.Json(
+                                {
+                                    "parser_version": active_parser_version,
+                                    "published_parser_version": baseline.get(
+                                        "parser_version"
+                                    ),
+                                    "pdf_sha256": pdf_sha256,
+                                    "content_sha256": content_sha256,
+                                }
+                            ),
+                            source_id,
+                            version_id,
+                            active_parser_version,
+                        ),
+                    )
+                    return StagedVersion(
+                        source_id=source_id,
+                        version_id=version_id,
+                        outcome="unchanged",
+                        comparison={"parser_only_equivalent": True},
+                    )
                 comparison = compare_extractions(
                     dict(baseline["extraction"]) if baseline else None,
                     extraction,
@@ -428,7 +529,7 @@ class TimetableRepository:
                             metadata["source_effective_date"],
                             http_etag,
                             http_last_modified,
-                            self.parser_version,
+                            active_parser_version,
                             self.import_version,
                             metadata["route_name"],
                             metadata["direction_names"],
@@ -480,7 +581,7 @@ class TimetableRepository:
                         metadata["source_effective_date"],
                         pdf_sha256,
                         content_sha256,
-                        self.parser_version,
+                        active_parser_version,
                         self.import_version,
                         version_id,
                         source_id,
@@ -525,8 +626,11 @@ class TimetableRepository:
         error: str,
         http_etag: Optional[str],
         http_last_modified: Optional[str],
+        parser_version: Optional[str] = None,
     ) -> StagedVersion:
         """Quarantine newly downloaded bytes that the parser cannot extract."""
+
+        active_parser_version = parser_version or self.parser_version
 
         failure_extraction = {
             "schema_version": 1,
@@ -565,7 +669,7 @@ class TimetableRepository:
                     (
                         source_id,
                         pdf_sha256,
-                        self.parser_version,
+                        active_parser_version,
                         self.import_version,
                     ),
                 )
@@ -647,7 +751,7 @@ class TimetableRepository:
                             source.url,
                             http_etag,
                             http_last_modified,
-                            self.parser_version,
+                            active_parser_version,
                             self.import_version,
                             source.route_name_hint,
                             psycopg2.extras.Json(failure_extraction),
@@ -679,6 +783,8 @@ class TimetableRepository:
                         last_downloaded_at = now(), last_seen_at = now(),
                         current_pdf_sha256 = %s,
                         current_content_sha256 = %s,
+                        parser_version = %s,
+                        import_version = %s,
                         status = 'changed_review_required',
                         pending_version_id = %s,
                         consecutive_missing_checks = 0,
@@ -689,6 +795,8 @@ class TimetableRepository:
                         source.url,
                         pdf_sha256,
                         staged_content_sha256,
+                        active_parser_version,
+                        self.import_version,
                         version_id,
                         source_id,
                     ),

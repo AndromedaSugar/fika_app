@@ -98,7 +98,7 @@ class FakeRepository:
     def fail_running_check(self, *_args):
         raise AssertionError("the orchestrator should contain operator failures")
 
-    def upsert_discovered_source(self, source):
+    def upsert_discovered_source(self, source, **_kwargs):
         return {"id": 9, "source_key": source.source_key}
 
     def stage_download(self, **kwargs):

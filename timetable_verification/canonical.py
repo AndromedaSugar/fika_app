@@ -198,11 +198,19 @@ def validate_extraction(extraction: Dict[str, Any]) -> None:
                     if not isinstance(times, list) or not times:
                         raise CanonicalError("each trip needs stop-time cells")
                     stop_signature = []
+                    normalized_stop_names = set()
                     for expected_sequence, cell in enumerate(times):
                         if cell.get("sequence") != expected_sequence:
                             raise CanonicalError("stop-time sequences must be zero-based and contiguous")
                         if not cell.get("stop_name"):
                             raise CanonicalError("stop_name cannot be blank")
+                        stop_name_key = " ".join(str(cell["stop_name"]).split()).casefold()
+                        if stop_name_key in normalized_stop_names:
+                            raise CanonicalError(
+                                "stop names must be unique within each trip after "
+                                "case and whitespace normalization"
+                            )
+                        normalized_stop_names.add(stop_name_key)
                         stop_signature.append((expected_sequence, cell["stop_name"]))
                         if cell.get("stop_time_type") not in {
                             "scheduled",

@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from timetable_verification import PARSER_VERSION
+
 
 class DiscoveryError(RuntimeError):
     pass
@@ -28,6 +30,7 @@ class DiscoveredSource:
 
 class OperatorAdapter(ABC):
     operator: str
+    parser_version: str = PARSER_VERSION
 
     @abstractmethod
     def discover(self, requester: Any) -> List[DiscoveredSource]:

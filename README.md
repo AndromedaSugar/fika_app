@@ -87,7 +87,7 @@ DATABASE_URL='postgresql://...' \
   .venv/bin/python -m timetable_verification.check_sources
 ```
 
-When parser or canonical-import behavior changes, update `PARSER_VERSION` or `IMPORT_VERSION` in `timetable_verification/__init__.py`. The same PDF will then be re-extracted and held for review rather than silently treated as unchanged.
+Parser revisions are operator-specific: MyCiTi uses `PARSER_VERSION` and Golden Arrow uses `GABS_PARSER_VERSION` in `timetable_verification/__init__.py`. Bump only the parser whose output semantics changed. The checker records an exact-PDF reparse that produces identical canonical content as unchanged; only a changed canonical extraction is staged for review. Canonical publication changes still require an `IMPORT_VERSION` bump.
 
 ### Render and review runbook
 

@@ -54,6 +54,19 @@ class StageCursor:
             version_id = int(args[0])
             version = next(item for item in self.connection.versions if item["id"] == version_id)
             self.row = {"id": version_id, "extraction": version["extraction"]}
+        elif statement.startswith("select id, pdf_sha256, content_sha256, parser_version"):
+            if "where id =" in statement:
+                version_id = int(args[0])
+                version = next(
+                    item for item in self.connection.versions if item["id"] == version_id
+                )
+            else:
+                candidates = [
+                    item for item in self.connection.versions
+                    if item["source_id"] == args[0]
+                ]
+                version = candidates[-1] if candidates else None
+            self.row = dict(version) if version else None
         elif statement.startswith("select id, extraction from timetable_source_versions where source_id"):
             candidates = [
                 item for item in self.connection.versions if item["source_id"] == args[0]
@@ -164,8 +177,10 @@ class StageCursor:
                     official_source_url=args[0],
                     current_pdf_sha256=args[1],
                     current_content_sha256=args[2],
+                    parser_version=args[3],
+                    import_version=args[4],
                     status="changed_review_required",
-                    pending_version_id=args[3],
+                    pending_version_id=args[5],
                     consecutive_missing_checks=0,
                 )
         elif statement.startswith("update timetable_sources set last_downloaded_at"):
@@ -357,6 +372,57 @@ class TimetableRepositoryTest(unittest.TestCase):
         self.assertEqual(version["pdf_bytes"], body)
         self.assertEqual(version["extraction"]["parse_error"], "no timetable headers")
         self.assertEqual(connection.source["pending_version_id"], version["id"])
+        self.assertEqual(connection.source["parser_version"], repository.parser_version)
+
+    def test_parser_upgrade_with_identical_pdf_and_content_needs_no_reapproval(self):
+        connection = StageConnection()
+        old_repository = TimetableRepository(connection, parser_version="parser/old")
+        body = b"%PDF-parser-compatible"
+        first = self._stage(old_repository, body)
+        connection.versions[0]["review_status"] = "approved"
+        connection.source.update(
+            approved_version_id=first.version_id,
+            pending_version_id=None,
+            status="verified",
+        )
+
+        new_repository = TimetableRepository(connection, parser_version="parser/new")
+        reparsed = self._stage(new_repository, body)
+
+        self.assertEqual(reparsed.outcome, "unchanged")
+        self.assertTrue(reparsed.comparison["parser_only_equivalent"])
+        self.assertEqual(len(connection.versions), 1)
+        self.assertEqual(connection.source["approved_version_id"], first.version_id)
+        self.assertIsNone(connection.source["pending_version_id"])
+        self.assertEqual(connection.source["status"], "verified")
+        self.assertTrue(
+            any("source_reparsed_unchanged" in statement for statement in connection.statements)
+        )
+
+    def test_parser_upgrade_reappearance_restores_verified_missing_source(self):
+        connection = StageConnection()
+        old_repository = TimetableRepository(connection, parser_version="parser/old")
+        body = b"%PDF-parser-compatible-reappearance"
+        first = self._stage(old_repository, body)
+        connection.versions[0]["review_status"] = "approved"
+        connection.source.update(
+            approved_version_id=first.version_id,
+            pending_version_id=None,
+            status="changed_review_required",
+            consecutive_missing_checks=2,
+        )
+        connection.missing_prior_status = "verified"
+        connection.audit_mismatch_since_missing = False
+
+        new_repository = TimetableRepository(connection, parser_version="parser/new")
+        reparsed = self._stage(new_repository, body)
+
+        self.assertEqual(reparsed.outcome, "unchanged")
+        self.assertEqual(connection.source["status"], "verified")
+        self.assertEqual(connection.source["consecutive_missing_checks"], 0)
+        self.assertTrue(
+            any("source_reappeared_unchanged" in statement for statement in connection.statements)
+        )
 
     def test_repeated_parse_failure_keeps_one_pending_version_without_self_cycle(self):
         connection = StageConnection()

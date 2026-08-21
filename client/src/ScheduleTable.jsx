@@ -61,7 +61,11 @@ const getServiceBadge = (trip) => {
 };
 
 const getVisibleTrips = (trips, selectedServiceDay) => {
-  return (trips || []).filter((trip) => !selectedServiceDay || trip[selectedServiceDay]).sort((firstTrip, secondTrip) => {
+  if (!selectedServiceDay) {
+    return [];
+  }
+
+  return (trips || []).filter((trip) => trip[selectedServiceDay]).sort((firstTrip, secondTrip) => {
     const firstArrival = firstTrip.first_arrival || '';
     const secondArrival = secondTrip.first_arrival || '';
 
@@ -71,6 +75,22 @@ const getVisibleTrips = (trips, selectedServiceDay) => {
       firstTrip.trip_id - secondTrip.trip_id
     );
   });
+};
+
+export const getVisibleRows = (rows, visibleTrips) => {
+  const visibleTripIds = new Set(
+    (visibleTrips || []).map((trip) => Number(trip.trip_id))
+  );
+
+  if (visibleTripIds.size === 0) {
+    return [];
+  }
+
+  return (rows || []).filter((row) =>
+    (row.stop_times || []).some((stopTime) =>
+      visibleTripIds.has(Number(stopTime.trip_id))
+    )
+  );
 };
 
 const getTimesByTripId = (row) => {
@@ -103,9 +123,10 @@ const ScheduleTable = ({
   const defaultDirection = Object.keys(scheduleData)[0];
   const directionData = selectedDirection !== '' ? scheduleData[selectedDirection] : scheduleData[defaultDirection];
   const visibleTrips = directionData ? getVisibleTrips(directionData.trips, selectedServiceDay) : [];
+  const visibleRows = directionData ? getVisibleRows(directionData.rows, visibleTrips) : [];
   const columnCount = visibleTrips.length;
   const agencyName = getAgencyDisplayName(route?.agency);
-  const stopCount = directionData?.rows?.length || 0;
+  const stopCount = visibleRows.length;
   const serviceDayText = selectedServiceDay
     ? selectedServiceDay.replace(/_/g, ' ')
     : 'the selected service day';
@@ -151,7 +172,7 @@ const ScheduleTable = ({
               </tr>
             </thead>
             <tbody>
-              {(directionData.rows || []).map((row, rowIndex) => {
+              {visibleRows.map((row, rowIndex) => {
                 const timesByTripId = getTimesByTripId(row);
 
                 return (

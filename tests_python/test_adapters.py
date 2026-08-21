@@ -3,12 +3,14 @@ import hashlib
 import unittest
 from pathlib import Path
 
+from timetable_verification import GABS_PARSER_VERSION, PARSER_VERSION
 from timetable_verification.adapters import DiscoveredSource, GabsAdapter, MyCitiAdapter
 from timetable_verification.adapters.base import ParseError
 from timetable_verification.adapters.gabs import (
     GABS_CATALOGUE_HEADERS,
     _deduplicate_identical_timetables,
     _footnote_service_days,
+    _merge_stop_sequences,
     _select_preferred_source,
     _source_key_from_pdf_url,
 )
@@ -23,6 +25,10 @@ def fixture_bytes(name):
 
 
 class AdapterUnitTest(unittest.TestCase):
+    def test_parser_versions_are_operator_specific(self):
+        self.assertEqual(MyCitiAdapter.parser_version, PARSER_VERSION)
+        self.assertEqual(GabsAdapter.parser_version, GABS_PARSER_VERSION)
+
     def test_gabs_catalogue_uses_browser_compatible_identified_headers(self):
         self.assertTrue(GABS_CATALOGUE_HEADERS["User-Agent"].startswith("Mozilla/5.0"))
         self.assertIn("Fika-Timetable-Verifier", GABS_CATALOGUE_HEADERS["X-Fika-Verifier"])
@@ -89,6 +95,21 @@ class AdapterUnitTest(unittest.TestCase):
         conflict = {**section, "effective_date": "2026-01-02"}
         self.assertEqual(len(_deduplicate_identical_timetables([section, duplicate])), 1)
         self.assertEqual(len(_deduplicate_identical_timetables([section, conflict])), 2)
+
+    def test_gabs_block_order_uses_first_block_as_stable_spine(self):
+        self.assertEqual(
+            _merge_stop_sequences(
+                [
+                    ["MAKHAZA", "MAKHAYA", "VILLAGE 3", "HARARE"],
+                    ["MAKHAZA", "J BLOCK", "VILLAGE 3", "HARARE"],
+                ]
+            ),
+            ["MAKHAZA", "MAKHAYA", "J BLOCK", "VILLAGE 3", "HARARE"],
+        )
+
+    def test_gabs_contradictory_block_order_is_quarantined(self):
+        with self.assertRaisesRegex(ParseError, "contradictory stop orders"):
+            _merge_stop_sequences([["A", "B"], ["B", "A"]])
 
     def test_myciti_direction_preserves_multiword_destination(self):
         self.assertEqual(

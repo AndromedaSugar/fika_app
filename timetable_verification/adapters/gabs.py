@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import io
 import re
 from datetime import date
@@ -12,7 +13,7 @@ from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 import pdfplumber
 
-from timetable_verification import SCHEMA_VERSION
+from timetable_verification import GABS_PARSER_VERSION, SCHEMA_VERSION
 from timetable_verification.canonical import (
     footnote_markers,
     normalize_time,
@@ -321,27 +322,65 @@ def _parse_group(rows: Sequence[str]) -> Dict[str, Any]:
     return {"rows": parsed_rows, "max_columns": max_columns}
 
 
-def _merge_stop_sequence(stops: List[str], group_stops: Sequence[str]) -> None:
-    for index, stop in enumerate(group_stops):
-        if stop in stops:
-            continue
-        previous = next(
-            (candidate for candidate in reversed(group_stops[:index]) if candidate in stops),
-            None,
+def _merge_stop_sequences(stop_paths: Sequence[Sequence[str]]) -> List[str]:
+    """Return one deterministic order satisfying every PDF block's order.
+
+    A GABS service can split trips into horizontal blocks whose stop lists are
+    different branches of the same direction.  Every adjacent pair printed in
+    a block is an ordering constraint.  First appearance in the PDF breaks ties
+    between otherwise independent branches, so the first block remains the
+    ordering spine.  Contradictory blocks are quarantined instead of silently
+    inventing an order.
+    """
+
+    first_seen: Dict[str, int] = {}
+    edges: Dict[str, set[str]] = {}
+    indegree: Dict[str, int] = {}
+    next_ordinal = 0
+
+    for path in stop_paths:
+        path_seen = set()
+        for stop in path:
+            if stop in path_seen:
+                raise ParseError(
+                    f"GABS service block repeats stop {stop!r}; cannot prove one stop order"
+                )
+            path_seen.add(stop)
+            if stop not in first_seen:
+                first_seen[stop] = next_ordinal
+                next_ordinal += 1
+                edges[stop] = set()
+                indegree[stop] = 0
+        for previous, following in zip(path, path[1:]):
+            if following not in edges[previous]:
+                edges[previous].add(following)
+                indegree[following] += 1
+
+    available = [
+        (first_seen[stop], stop)
+        for stop, count in indegree.items()
+        if count == 0
+    ]
+    heapq.heapify(available)
+    ordered: List[str] = []
+    while available:
+        _ordinal, stop = heapq.heappop(available)
+        ordered.append(stop)
+        for following in sorted(edges[stop], key=first_seen.__getitem__):
+            indegree[following] -= 1
+            if indegree[following] == 0:
+                heapq.heappush(available, (first_seen[following], following))
+
+    if len(ordered) != len(first_seen):
+        unresolved = sorted(
+            (stop for stop, count in indegree.items() if count > 0),
+            key=first_seen.__getitem__,
         )
-        following = next(
-            (candidate for candidate in group_stops[index + 1 :] if candidate in stops),
-            None,
+        raise ParseError(
+            "GABS service blocks contain contradictory stop orders involving "
+            + ", ".join(unresolved)
         )
-        if previous:
-            insert_at = stops.index(previous) + 1
-            if following and stops.index(following) < insert_at:
-                insert_at = stops.index(following)
-            stops.insert(insert_at, stop)
-        elif following:
-            stops.insert(stops.index(following), stop)
-        else:
-            stops.append(stop)
+    return ordered
 
 
 def _parse_route_rows(rows: Sequence[str]) -> Dict[str, Any]:
@@ -359,9 +398,11 @@ def _parse_route_rows(rows: Sequence[str]) -> Dict[str, Any]:
     parsed_groups = [_parse_group(group) for group in groups if group]
     if not parsed_groups:
         raise ParseError("GABS service table contained no data rows")
-    stops: List[str] = []
-    for group in parsed_groups:
-        _merge_stop_sequence(stops, [stop for stop, _times in group["rows"]])
+    stop_paths = [
+        [stop for stop, _times in group["rows"]]
+        for group in parsed_groups
+    ]
+    stops = _merge_stop_sequences(stop_paths)
     trips: List[List[Dict[str, str]]] = []
     for group in parsed_groups:
         for column in range(group["max_columns"]):
@@ -385,12 +426,15 @@ def _parse_route_rows(rows: Sequence[str]) -> Dict[str, Any]:
     )
     if not trips:
         raise ParseError("GABS service table contained no scheduled trips")
-    return {"stops": stops, "trips": trips}
+    return {"stops": stops, "stop_paths": stop_paths, "trips": trips}
 
 
 def _merge_service_route(existing: Dict[str, Any], continuation: Dict[str, Any]) -> None:
-    all_stops = list(existing["stops"])
-    _merge_stop_sequence(all_stops, continuation["stops"])
+    stop_paths = [
+        *existing.get("stop_paths", [existing["stops"]]),
+        *continuation.get("stop_paths", [continuation["stops"]]),
+    ]
+    all_stops = _merge_stop_sequences(stop_paths)
 
     def expand(trip: List[Dict[str, str]]) -> List[Dict[str, str]]:
         by_stop = {item["stop_name"]: item["raw_time"] for item in trip}
@@ -408,6 +452,7 @@ def _merge_service_route(existing: Dict[str, Any], continuation: Dict[str, Any])
         )
     )
     existing["stops"] = all_stops
+    existing["stop_paths"] = stop_paths
 
 
 def _deduplicate_identical_timetables(
@@ -760,6 +805,7 @@ def _canonical_service(
 
 class GabsAdapter(OperatorAdapter):
     operator = "GABS"
+    parser_version = GABS_PARSER_VERSION
 
     def __init__(self, catalogue_url: str = GABS_CATALOGUE_URL) -> None:
         self.catalogue_url = catalogue_url

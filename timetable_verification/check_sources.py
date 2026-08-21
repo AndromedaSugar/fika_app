@@ -151,7 +151,10 @@ class DailyChecker:
             pdf_hash = None
             started = time.monotonic()
             try:
-                source_row = self.repository.upsert_discovered_source(source)
+                source_row = self.repository.upsert_discovered_source(
+                    source,
+                    parser_version=adapter.parser_version,
+                )
                 if source.discovery_warnings:
                     warning_details = {
                         "source_key": source.source_key,
@@ -185,6 +188,7 @@ class DailyChecker:
                         error=str(parse_error),
                         http_etag=response.headers.get("etag"),
                         http_last_modified=response.headers.get("last-modified"),
+                        parser_version=adapter.parser_version,
                     )
                     counts["changed"] += 1
                     result["changed"] += 1
@@ -199,6 +203,7 @@ class DailyChecker:
                     extraction=extraction,
                     http_etag=response.headers.get("etag"),
                     http_last_modified=response.headers.get("last-modified"),
+                    parser_version=adapter.parser_version,
                 )
                 counts[staged.outcome if staged.outcome == "unchanged" else "changed"] += 1
                 result[staged.outcome if staged.outcome == "unchanged" else "changed"] += 1
