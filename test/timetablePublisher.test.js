@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   approvePendingVersion,
+  bulkApproveUnchangedVersions,
   currentCapeTownDate,
   serviceDayFlags,
   validateCanonicalExtraction,
@@ -79,6 +80,11 @@ function versionRow(extraction, overrides = {}) {
     source_url: 'https://operator.example/timetable.pdf',
     review_status: 'pending',
     extraction,
+    comparison: {
+      changed_time_count: 0,
+      added_time_count: 0,
+      removed_time_count: 0,
+    },
     ...overrides,
   };
 }
@@ -238,6 +244,51 @@ class RecordingDatabase {
   }
 }
 
+class BulkRecordingDatabase extends RecordingDatabase {
+  constructor() {
+    const firstExtraction = canonicalExtraction();
+    const secondExtraction = canonicalExtraction({
+      routeCode: '215',
+      sourceKey: 'route-215',
+    });
+    const firstSource = {
+      id: 1,
+      operator: 'MyCiti',
+      source_key: 'route-214a',
+      status: 'changed_review_required',
+      approved_version_id: 9,
+      pending_version_id: 10,
+    };
+    super({
+      source: firstSource,
+      candidate: versionRow(firstExtraction),
+      versions: [
+        versionRow(firstExtraction, { id: 9, previous_version_id: null, review_status: 'approved' }),
+        versionRow(secondExtraction, { id: 19, previous_version_id: null, review_status: 'approved' }),
+        versionRow(secondExtraction, { id: 20, previous_version_id: 19 }),
+      ],
+    });
+    this.sources = new Map([
+      ['1', firstSource],
+      ['2', {
+        id: 2,
+        operator: 'MyCiti',
+        source_key: 'route-215',
+        status: 'changed_review_required',
+        approved_version_id: 19,
+        pending_version_id: 20,
+      }],
+    ]);
+  }
+
+  async query(sql, params = []) {
+    if (/FROM timetable_sources\s+WHERE id = \$1\s+FOR UPDATE/s.test(String(sql))) {
+      this.source = this.sources.get(String(params[0]));
+    }
+    return super.query(sql, params);
+  }
+}
+
 function approvalOptions(overrides = {}) {
   return {
     sourceId: 1,
@@ -271,6 +322,45 @@ function publishedContributionRow(overrides = {}) {
     ...overrides,
   };
 }
+
+test('bulk unchanged approval publishes every candidate in one transaction', async () => {
+  const database = new BulkRecordingDatabase();
+  const results = await bulkApproveUnchangedVersions(database, {
+    candidates: [
+      { sourceId: 2, versionId: 20 },
+      { sourceId: 1, versionId: 10 },
+    ],
+    reviewer: 'reviewer@example.com',
+    note: 'unchanged',
+    verifiedOn: '2026-08-17',
+  });
+
+  assert.equal(results.length, 2);
+  assert.equal(database.calls.filter((call) => call.text === 'BEGIN').length, 1);
+  assert.equal(database.calls.filter((call) => call.text === 'COMMIT').length, 1);
+  assert.equal(database.calls.filter((call) => call.params.includes('source_approved')).length, 2);
+});
+
+test('bulk unchanged approval rolls back if any candidate has timetable changes', async () => {
+  const database = new BulkRecordingDatabase();
+  database.versions.get('20').comparison.changed_time_count = 1;
+
+  await assert.rejects(
+    bulkApproveUnchangedVersions(database, {
+      candidates: [
+        { sourceId: 1, versionId: 10 },
+        { sourceId: 2, versionId: 20 },
+      ],
+      reviewer: 'reviewer@example.com',
+      note: 'unchanged',
+      verifiedOn: '2026-08-17',
+    }),
+    /no longer an unchanged candidate/
+  );
+
+  assert.equal(database.calls.at(-1).text, 'ROLLBACK');
+  assert.equal(database.calls.some((call) => call.text === 'COMMIT'), false);
+});
 
 test('canonical validation rejects empty publication data before any production write', async () => {
   const invalid = canonicalExtraction();

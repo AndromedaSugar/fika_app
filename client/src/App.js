@@ -17,6 +17,7 @@ import {
 } from './analytics';
 import {
   getAgencyDisplayName,
+  getAvailableRouteCount,
   getAreaSlugFromPath,
   getOperatorAgencyFromPath,
   getRouteAreaNames,
@@ -459,7 +460,7 @@ function LandingPage({
       <section className="coverage-band" aria-label="Timetable coverage">
         <div className="coverage-copy">
           <h2>Available now</h2>
-          <p>{getRouteCountLabel(schedules.length)} for Cape Town bus commuters.</p>
+          <p>{getRouteCountLabel(getAvailableRouteCount(schedules))} for Cape Town bus commuters.</p>
         </div>
         <div className="coverage-list">
           <div className="coverage-item">

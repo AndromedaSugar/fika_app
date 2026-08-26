@@ -63,6 +63,21 @@ export const getAreaSlugFromPath = (pathname) => {
 
 export const isAreasIndexPath = (pathname) => pathname === '/areas';
 
+export const getAvailableRouteCount = (routes = []) => {
+  const routeKeys = new Set();
+
+  (routes || []).forEach((route) => {
+    if (!route) return;
+    const hasId = route.id !== null && route.id !== undefined && route.id !== '';
+    routeKeys.add(hasId
+      ? `id:${route.id}`
+      : `route:${route.agency || ''}:${route.code || ''}:${route.name || ''}`
+    );
+  });
+
+  return routeKeys.size;
+};
+
 export const getRouteCountLabel = (count) => {
   if (!count) {
     return 'Route timetables';

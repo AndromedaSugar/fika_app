@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   actionToken,
+  bulkApprovalIdentifier,
   comparisonSummary,
+  getBulkUnchangedCandidates,
   johannesburgDate,
   renderAdminPage,
   secureEqual,
@@ -29,6 +31,80 @@ test('comparison summary reports counts and changed times', () => {
   });
   assert.match(summary, /180 → 182 departures/);
   assert.match(summary, /2 changed, 3 added, 1 removed/);
+});
+
+test('bulk approval candidates require explicit zero changed, added, and removed counts', () => {
+  const candidates = getBulkUnchangedCandidates([
+    {
+      id: 3,
+      pending_version_id: 8,
+      pending_pdf_sha256: 'a'.repeat(64),
+      pending_comparison: {
+        changed_time_count: 0,
+        added_time_count: 0,
+        removed_time_count: 0,
+      },
+    },
+    {
+      id: 4,
+      pending_version_id: 9,
+      pending_pdf_sha256: 'b'.repeat(64),
+      pending_comparison: {
+        changed_time_count: 1,
+        added_time_count: 0,
+        removed_time_count: 0,
+      },
+    },
+    {
+      id: 5,
+      pending_version_id: 10,
+      pending_pdf_sha256: 'c'.repeat(64),
+      pending_comparison: { changed_time_count: 0 },
+    },
+  ]);
+
+  assert.deepEqual(candidates, [{
+    sourceId: 3,
+    versionId: 8,
+    pdfSha256: 'a'.repeat(64),
+  }]);
+  assert.equal(bulkApprovalIdentifier(candidates), JSON.stringify([[3, 8, 'a'.repeat(64)]]));
+});
+
+test('admin page offers a signed bulk action with the unchanged review note by default', () => {
+  const html = renderAdminPage({
+    sources: [{
+      id: 3,
+      operator: 'GABS',
+      source_key: '000401',
+      official_source_url: 'https://operator.example/source.pdf',
+      direction_names: ['Outbound'],
+      service_day_coverage: ['monday'],
+      parser_version: 'gabs-2',
+      import_version: 'canonical-1',
+      status: 'changed_review_required',
+      pending_version_id: 8,
+      pending_pdf_sha256: 'a'.repeat(64),
+      pending_pdf_size_bytes: 1234,
+      pending_comparison: {
+        changed_time_count: 0,
+        added_time_count: 0,
+        removed_time_count: 0,
+      },
+    }],
+    checkRuns: [],
+    audit: null,
+    samples: [],
+  }, 'secret');
+
+  assert.match(html, /action="\/admin\/timetable-reliability\/sources\/bulk-approve-unchanged"/);
+  assert.match(html, /value="unchanged"/);
+  assert.match(html, /Approve and publish 1 unchanged route/);
+  assert.match(html, new RegExp(actionToken(
+    'secret',
+    'bulk-approve-unchanged',
+    JSON.stringify([[3, 8, 'a'.repeat(64)]])
+  )));
 });
 
 test('admin page makes publication an explicit review action and scopes the accuracy claim', () => {

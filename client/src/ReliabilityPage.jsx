@@ -18,6 +18,8 @@ const DAY_LABELS = {
   public_holiday: 'Public holiday',
 };
 
+const SOURCE_PAGE_SIZE = 20;
+
 function formatDate(value, includeTime = false) {
   if (!value) return 'Not yet recorded';
 
@@ -76,6 +78,7 @@ export default function ReliabilityPage() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let ignore = false;
@@ -95,7 +98,7 @@ export default function ReliabilityPage() {
     return () => { ignore = true; };
   }, []);
 
-  const visibleSources = useMemo(() => {
+  const filteredSources = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return (report?.sources || []).filter((source) => {
       if (status !== 'all' && source.status !== status) return false;
@@ -106,6 +109,16 @@ export default function ReliabilityPage() {
         .includes(normalizedQuery);
     });
   }, [query, report, status]);
+  const pageCount = Math.max(1, Math.ceil(filteredSources.length / SOURCE_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const visibleSources = filteredSources.slice(
+    (currentPage - 1) * SOURCE_PAGE_SIZE,
+    currentPage * SOURCE_PAGE_SIZE
+  );
+  const firstVisibleSource = filteredSources.length
+    ? (currentPage - 1) * SOURCE_PAGE_SIZE + 1
+    : 0;
+  const lastVisibleSource = Math.min(currentPage * SOURCE_PAGE_SIZE, filteredSources.length);
 
   return (
     <main className="reliability-page">
@@ -151,11 +164,17 @@ export default function ReliabilityPage() {
             <div className="reliability-registry-heading">
               <div>
                 <h2>Official source registry</h2>
-                <p>{visibleSources.length} of {report.sources.length} timetable sources shown.</p>
+                <p>Showing {firstVisibleSource}–{lastVisibleSource} of {filteredSources.length} filtered timetable sources ({report.sources.length} total).</p>
               </div>
               <div className="reliability-filters">
-                <label>Find a route<input value={query} onChange={(event) => setQuery(event.target.value)} type="search" /></label>
-                <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}>
+                <label>Find a route<input value={query} onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }} type="search" /></label>
+                <label>Status<select value={status} onChange={(event) => {
+                  setStatus(event.target.value);
+                  setPage(1);
+                }}>
                   <option value="all">All</option>
                   <option value="verified">Verified</option>
                   <option value="changed_review_required">Review required</option>
@@ -169,6 +188,11 @@ export default function ReliabilityPage() {
                 <tbody>{visibleSources.map((source) => <SourceRow source={source} key={source.id} />)}</tbody>
               </table>
             </div>
+            <nav className="reliability-pagination" aria-label="Official source registry pages">
+              <button type="button" disabled={currentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button>
+              <span aria-live="polite">Page {currentPage} of {pageCount}</span>
+              <button type="button" disabled={currentPage === pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>Next</button>
+            </nav>
           </section>
 
           <section className="reliability-evidence">

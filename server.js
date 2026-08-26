@@ -1820,6 +1820,7 @@ app.get('/admin/search-performance', createSearchPerformanceHandler({
 app.get('/admin/timetable-reliability', timetableReliabilityHandlers.report);
 app.get('/admin/timetable-reliability/versions/:id/pdf', timetableReliabilityHandlers.pdf);
 app.get('/admin/timetable-reliability/versions/:id/comparison', timetableReliabilityHandlers.comparison);
+app.post('/admin/timetable-reliability/sources/bulk-approve-unchanged', timetableReliabilityForm, timetableReliabilityHandlers.bulkApproveUnchanged);
 app.post('/admin/timetable-reliability/sources/:id/approve', timetableReliabilityForm, timetableReliabilityHandlers.approve);
 app.post('/admin/timetable-reliability/sources/:id/withdraw', timetableReliabilityForm, timetableReliabilityHandlers.withdraw);
 app.post('/admin/timetable-reliability/audits/:id', timetableReliabilityForm, timetableReliabilityHandlers.audit);
