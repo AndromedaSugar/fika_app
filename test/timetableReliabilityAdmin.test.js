@@ -5,6 +5,7 @@ const {
   bulkApprovalIdentifier,
   comparisonSummary,
   getBulkUnchangedCandidates,
+  isPendingVersionEffective,
   johannesburgDate,
   renderAdminPage,
   secureEqual,
@@ -33,12 +34,13 @@ test('comparison summary reports counts and changed times', () => {
   assert.match(summary, /2 changed, 3 added, 1 removed/);
 });
 
-test('bulk approval candidates require explicit zero changed, added, and removed counts', () => {
+test('bulk approval candidates require zero changes and an effective pending version', () => {
   const candidates = getBulkUnchangedCandidates([
     {
       id: 3,
       pending_version_id: 8,
       pending_pdf_sha256: 'a'.repeat(64),
+      pending_source_effective_date: '2026-08-17',
       pending_comparison: {
         changed_time_count: 0,
         added_time_count: 0,
@@ -61,7 +63,18 @@ test('bulk approval candidates require explicit zero changed, added, and removed
       pending_pdf_sha256: 'c'.repeat(64),
       pending_comparison: { changed_time_count: 0 },
     },
-  ]);
+    {
+      id: 6,
+      pending_version_id: 11,
+      pending_pdf_sha256: 'd'.repeat(64),
+      pending_source_effective_date: '2026-08-18',
+      pending_comparison: {
+        changed_time_count: 0,
+        added_time_count: 0,
+        removed_time_count: 0,
+      },
+    },
+  ], '2026-08-17');
 
   assert.deepEqual(candidates, [{
     sourceId: 3,
@@ -69,6 +82,8 @@ test('bulk approval candidates require explicit zero changed, added, and removed
     pdfSha256: 'a'.repeat(64),
   }]);
   assert.equal(bulkApprovalIdentifier(candidates), JSON.stringify([[3, 8, 'a'.repeat(64)]]));
+  assert.equal(isPendingVersionEffective({ pending_source_effective_date: '2026-08-17' }, '2026-08-17'), true);
+  assert.equal(isPendingVersionEffective({ pending_source_effective_date: '2026-08-18' }, '2026-08-17'), false);
 });
 
 test('admin page offers a signed bulk action with the unchanged review note by default', () => {
@@ -105,6 +120,38 @@ test('admin page offers a signed bulk action with the unchanged review note by d
     'bulk-approve-unchanged',
     JSON.stringify([[3, 8, 'a'.repeat(64)]])
   )));
+});
+
+test('admin page disables publication and excludes a future-effective route from bulk approval', () => {
+  const html = renderAdminPage({
+    sources: [{
+      id: 6,
+      operator: 'MyCiti',
+      source_key: '215',
+      official_source_url: 'https://operator.example/215.pdf',
+      direction_names: ['Outbound'],
+      service_day_coverage: ['monday'],
+      parser_version: 'myciti-2',
+      import_version: 'canonical-1',
+      status: 'changed_review_required',
+      pending_version_id: 11,
+      pending_pdf_sha256: 'd'.repeat(64),
+      pending_pdf_size_bytes: 1234,
+      pending_source_effective_date: '2099-01-01',
+      pending_comparison: {
+        changed_time_count: 0,
+        added_time_count: 0,
+        removed_time_count: 0,
+      },
+    }],
+    checkRuns: [],
+    audit: null,
+    samples: [],
+  }, 'secret');
+
+  assert.match(html, /type="submit" disabled title="Available from 2099-01-01">Approve and publish/);
+  assert.match(html, /Cannot publish before its effective date, 2099-01-01/);
+  assert.doesNotMatch(html, /sources\/bulk-approve-unchanged/);
 });
 
 test('admin page makes publication an explicit review action and scopes the accuracy claim', () => {
