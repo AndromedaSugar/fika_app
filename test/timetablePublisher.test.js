@@ -81,6 +81,7 @@ function versionRow(extraction, overrides = {}) {
     review_status: 'pending',
     extraction,
     comparison: {
+      has_changes: false,
       changed_time_count: 0,
       added_time_count: 0,
       removed_time_count: 0,

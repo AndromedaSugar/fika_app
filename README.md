@@ -89,6 +89,8 @@ DATABASE_URL='postgresql://...' \
 
 Parser revisions are operator-specific: MyCiTi uses `PARSER_VERSION` and Golden Arrow uses `GABS_PARSER_VERSION` in `timetable_verification/__init__.py`. Bump only the parser whose output semantics changed. The checker records an exact-PDF reparse that produces identical canonical content as unchanged; only a changed canonical extraction is staged for review. Canonical publication changes still require an `IMPORT_VERSION` bump.
 
+If an operator regenerates a PDF so its byte-level SHA-256 changes but its full canonical timetable content does not, the checker keeps the new PDF as evidence and leaves the already-published timetable verified; no approval or republishing is required. Zero changed/added/removed departure cells alone are not treated as equivalence because route metadata, stops, service days, or footnotes may still have changed.
+
 ### Render and review runbook
 
 `render.yaml` defines `fika-timetable-source-daily` at `01:17 UTC` (`03:17` in Johannesburg). It is a separate native Python cron from the Node web service and weekly Search Console job. Render cron files are ephemeral, so raw versioned PDFs and evidence are stored in PostgreSQL rather than on the cron filesystem.

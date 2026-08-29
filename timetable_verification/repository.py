@@ -341,6 +341,52 @@ class TimetableRepository:
                         comparison={},
                     )
 
+                is_repeated_equivalent_observation = bool(
+                    matching_version
+                    and source_row.get("status") == "verified"
+                    and source_row.get("pending_version_id") is None
+                    and source_row.get("approved_version_id") is not None
+                    and int(matching_version["id"])
+                    != int(source_row["approved_version_id"])
+                    and matching_version.get("review_status") == "superseded"
+                    and matching_version.get("comparison", {}).get(
+                        "pdf_bytes_changed_content_unchanged"
+                    )
+                    is True
+                    and source_row.get("current_pdf_sha256") == pdf_sha256
+                    and source_row.get("current_content_sha256") == content_sha256
+                    and source_row.get("parser_version") == active_parser_version
+                    and source_row.get("import_version") == self.import_version
+                )
+                if is_repeated_equivalent_observation:
+                    version_id = int(matching_version["id"])
+                    cursor.execute(
+                        """
+                        UPDATE timetable_source_versions
+                        SET last_downloaded_at = now(), http_etag = %s,
+                            http_last_modified = %s
+                        WHERE id = %s
+                        """,
+                        (http_etag, http_last_modified, version_id),
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE timetable_sources
+                        SET last_downloaded_at = now(), last_seen_at = now(),
+                            official_source_url = %s,
+                            consecutive_missing_checks = 0,
+                            updated_at = now()
+                        WHERE id = %s
+                        """,
+                        (source.url, source_id),
+                    )
+                    return StagedVersion(
+                        source_id=source_id,
+                        version_id=version_id,
+                        outcome="unchanged",
+                        comparison=dict(matching_version["comparison"]),
+                    )
+
                 baseline_id = (
                     source_row.get("approved_version_id")
                     or source_row.get("pending_version_id")
@@ -466,6 +512,152 @@ class TimetableRepository:
                         "has_changes": True,
                         "source_reappeared_after_withdrawal": True,
                     }
+
+                # Operators sometimes regenerate a PDF without changing any of
+                # its canonical timetable content (for example, PDF metadata or
+                # layout-only changes). Preserve those newly observed bytes as
+                # evidence, but do not create a review/publishing task when the
+                # currently approved extraction is exactly equivalent.
+                content_equivalent_to_approved = bool(
+                    baseline
+                    and source_row.get("status") == "verified"
+                    and source_row.get("pending_version_id") is None
+                    and source_row.get("approved_version_id") == int(baseline["id"])
+                    and baseline.get("review_status") == "approved"
+                    and baseline.get("content_sha256") == content_sha256
+                    and baseline.get("import_version") == self.import_version
+                    and source_row.get("current_content_sha256") == content_sha256
+                    and comparison.get("has_changes") is False
+                )
+                if content_equivalent_to_approved:
+                    equivalent_comparison = {
+                        **comparison,
+                        "pdf_bytes_changed_content_unchanged": True,
+                    }
+                    if matching_version:
+                        version_id = int(matching_version["id"])
+                        cursor.execute(
+                            """
+                            UPDATE timetable_source_versions
+                            SET last_downloaded_at = now(),
+                                http_etag = %s,
+                                http_last_modified = %s,
+                                previous_version_id = %s,
+                                comparison = %s,
+                                review_status = 'superseded',
+                                review_note = 'Canonical timetable content unchanged; publication not required.'
+                            WHERE id = %s
+                            """,
+                            (
+                                http_etag,
+                                http_last_modified,
+                                int(baseline["id"]),
+                                psycopg2.extras.Json(equivalent_comparison),
+                                version_id,
+                            ),
+                        )
+                    else:
+                        cursor.execute(
+                            """
+                            INSERT INTO timetable_source_versions (
+                              source_id, previous_version_id, pdf_sha256, content_sha256,
+                              source_url, source_effective_date, http_etag,
+                              http_last_modified, parser_version, import_version,
+                              route_name, direction_names, service_day_coverage,
+                              extraction, comparison, pdf_bytes, pdf_size_bytes,
+                              review_status, review_note
+                            )
+                            VALUES (
+                              %s, %s, %s, %s, %s, %s::date, %s, %s, %s, %s,
+                              %s, %s, %s, %s, %s, %s, %s,
+                              'superseded',
+                              'Canonical timetable content unchanged; publication not required.'
+                            )
+                            RETURNING id
+                            """,
+                            (
+                                source_id,
+                                int(baseline["id"]),
+                                pdf_sha256,
+                                content_sha256,
+                                source.url,
+                                metadata["source_effective_date"],
+                                http_etag,
+                                http_last_modified,
+                                active_parser_version,
+                                self.import_version,
+                                metadata["route_name"],
+                                metadata["direction_names"],
+                                metadata["service_day_coverage"],
+                                psycopg2.extras.Json(extraction),
+                                psycopg2.extras.Json(equivalent_comparison),
+                                psycopg2.Binary(pdf_bytes),
+                                len(pdf_bytes),
+                            ),
+                        )
+                        version_id = int(cursor.fetchone()["id"])
+
+                    cursor.execute(
+                        """
+                        UPDATE timetable_sources
+                        SET route_name = %s,
+                            direction_names = %s,
+                            service_day_coverage = %s,
+                            official_source_url = %s,
+                            source_effective_date = %s::date,
+                            last_downloaded_at = now(),
+                            last_seen_at = now(),
+                            current_pdf_sha256 = %s,
+                            current_content_sha256 = %s,
+                            parser_version = %s,
+                            import_version = %s,
+                            consecutive_missing_checks = 0,
+                            updated_at = now()
+                        WHERE id = %s
+                        """,
+                        (
+                            metadata["route_name"],
+                            metadata["direction_names"],
+                            metadata["service_day_coverage"],
+                            source.url,
+                            metadata["source_effective_date"],
+                            pdf_sha256,
+                            content_sha256,
+                            active_parser_version,
+                            self.import_version,
+                            source_id,
+                        ),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO timetable_source_events (
+                          source_id, source_version_id, check_run_id,
+                          event_type, details
+                        ) VALUES (
+                          %s, %s, %s, 'source_pdf_changed_content_unchanged', %s
+                        )
+                        """,
+                        (
+                            source_id,
+                            version_id,
+                            run_id,
+                            psycopg2.extras.Json(
+                                {
+                                    "approved_version_id": int(baseline["id"]),
+                                    "approved_pdf_sha256": baseline.get("pdf_sha256"),
+                                    "observed_pdf_sha256": pdf_sha256,
+                                    "content_sha256": content_sha256,
+                                }
+                            ),
+                        ),
+                    )
+                    return StagedVersion(
+                        source_id=source_id,
+                        version_id=version_id,
+                        outcome="unchanged",
+                        comparison=equivalent_comparison,
+                    )
+
                 outcome = (
                     "changed"
                     if baseline or source_row.get("status") == "withdrawn"

@@ -34,6 +34,23 @@ test('comparison summary reports counts and changed times', () => {
   assert.match(summary, /2 changed, 3 added, 1 removed/);
 });
 
+test('comparison summary makes zero-time structural changes visible', () => {
+  const summary = comparisonSummary({
+    previous_scheduled_departure_count: 180,
+    current_scheduled_departure_count: 180,
+    changed_time_count: 0,
+    added_time_count: 0,
+    removed_time_count: 0,
+    structural_changes: {
+      routes: { changed: true },
+      service_days: { changed: true },
+      stops: { changed: false },
+    },
+  });
+
+  assert.match(summary, /structural changes: routes, service days/);
+});
+
 test('bulk approval candidates require zero changes and an effective pending version', () => {
   const candidates = getBulkUnchangedCandidates([
     {
@@ -42,6 +59,7 @@ test('bulk approval candidates require zero changes and an effective pending ver
       pending_pdf_sha256: 'a'.repeat(64),
       pending_source_effective_date: '2026-08-17',
       pending_comparison: {
+        has_changes: false,
         changed_time_count: 0,
         added_time_count: 0,
         removed_time_count: 0,
@@ -52,6 +70,7 @@ test('bulk approval candidates require zero changes and an effective pending ver
       pending_version_id: 9,
       pending_pdf_sha256: 'b'.repeat(64),
       pending_comparison: {
+        has_changes: true,
         changed_time_count: 1,
         added_time_count: 0,
         removed_time_count: 0,
@@ -69,6 +88,7 @@ test('bulk approval candidates require zero changes and an effective pending ver
       pending_pdf_sha256: 'd'.repeat(64),
       pending_source_effective_date: '2026-08-18',
       pending_comparison: {
+        has_changes: false,
         changed_time_count: 0,
         added_time_count: 0,
         removed_time_count: 0,
@@ -84,6 +104,25 @@ test('bulk approval candidates require zero changes and an effective pending ver
   assert.equal(bulkApprovalIdentifier(candidates), JSON.stringify([[3, 8, 'a'.repeat(64)]]));
   assert.equal(isPendingVersionEffective({ pending_source_effective_date: '2026-08-17' }, '2026-08-17'), true);
   assert.equal(isPendingVersionEffective({ pending_source_effective_date: '2026-08-18' }, '2026-08-17'), false);
+});
+
+test('bulk approval excludes zero-time comparisons with structural changes', () => {
+  const candidates = getBulkUnchangedCandidates([{
+    id: 7,
+    pending_version_id: 12,
+    pending_pdf_sha256: 'e'.repeat(64),
+    pending_comparison: {
+      has_changes: true,
+      changed_time_count: 0,
+      added_time_count: 0,
+      removed_time_count: 0,
+      structural_changes: {
+        routes: { changed: true },
+      },
+    },
+  }]);
+
+  assert.deepEqual(candidates, []);
 });
 
 test('admin page offers a signed bulk action with the unchanged review note by default', () => {
@@ -102,6 +141,7 @@ test('admin page offers a signed bulk action with the unchanged review note by d
       pending_pdf_sha256: 'a'.repeat(64),
       pending_pdf_size_bytes: 1234,
       pending_comparison: {
+        has_changes: false,
         changed_time_count: 0,
         added_time_count: 0,
         removed_time_count: 0,
@@ -139,6 +179,7 @@ test('admin page disables publication and excludes a future-effective route from
       pending_pdf_size_bytes: 1234,
       pending_source_effective_date: '2099-01-01',
       pending_comparison: {
+        has_changes: false,
         changed_time_count: 0,
         added_time_count: 0,
         removed_time_count: 0,

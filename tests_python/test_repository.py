@@ -115,7 +115,9 @@ class StageCursor:
                     "comparison": _json_value(args[14]),
                     "pdf_bytes": bytes(args[15].adapted),
                     "pdf_size_bytes": args[16],
-                    "review_status": "pending",
+                    "review_status": (
+                        "superseded" if "'superseded'" in statement else "pending"
+                    ),
                 }
             else:
                 version = {
@@ -154,7 +156,10 @@ class StageCursor:
                 comparison=_json_value(args[3]),
                 review_status="pending",
             )
-        elif statement.startswith("update timetable_sources set route_name"):
+        elif (
+            statement.startswith("update timetable_sources set route_name")
+            and "status = 'changed_review_required'" in statement
+        ):
             self.connection.source.update(
                 route_name=args[0],
                 direction_names=args[1],
@@ -167,6 +172,19 @@ class StageCursor:
                 import_version=args[8],
                 status="changed_review_required",
                 pending_version_id=args[9],
+                consecutive_missing_checks=0,
+            )
+        elif statement.startswith("update timetable_sources set route_name"):
+            self.connection.source.update(
+                route_name=args[0],
+                direction_names=args[1],
+                service_day_coverage=args[2],
+                official_source_url=args[3],
+                source_effective_date=args[4],
+                current_pdf_sha256=args[5],
+                current_content_sha256=args[6],
+                parser_version=args[7],
+                import_version=args[8],
                 consecutive_missing_checks=0,
             )
         elif statement.startswith("update timetable_sources set official_source_url"):
@@ -352,6 +370,70 @@ class TimetableRepositoryTest(unittest.TestCase):
                 for statement in connection.statements
             )
         )
+
+    def test_new_pdf_bytes_with_identical_approved_content_need_no_review(self):
+        connection = StageConnection()
+        repository = TimetableRepository(connection)
+        first = self._stage(repository, b"%PDF-approved")
+        connection.versions[0]["review_status"] = "approved"
+        connection.source.update(
+            approved_version_id=first.version_id,
+            pending_version_id=None,
+            status="verified",
+        )
+
+        regenerated = self._stage(repository, b"%PDF-regenerated-same-timetable")
+
+        self.assertEqual(regenerated.outcome, "unchanged")
+        self.assertFalse(regenerated.comparison["has_changes"])
+        self.assertTrue(
+            regenerated.comparison["pdf_bytes_changed_content_unchanged"]
+        )
+        self.assertEqual(len(connection.versions), 2)
+        self.assertEqual(connection.versions[1]["review_status"], "superseded")
+        self.assertEqual(connection.source["approved_version_id"], first.version_id)
+        self.assertIsNone(connection.source["pending_version_id"])
+        self.assertEqual(connection.source["status"], "verified")
+        self.assertEqual(
+            connection.source["current_pdf_sha256"],
+            sha256_bytes(b"%PDF-regenerated-same-timetable"),
+        )
+        self.assertTrue(
+            any(
+                "source_pdf_changed_content_unchanged" in statement
+                for statement in connection.statements
+            )
+        )
+
+        event_count = len(connection.events)
+        repeated = self._stage(repository, b"%PDF-regenerated-same-timetable")
+        self.assertEqual(repeated.outcome, "unchanged")
+        self.assertEqual(repeated.version_id, regenerated.version_id)
+        self.assertEqual(len(connection.versions), 2)
+        self.assertEqual(len(connection.events), event_count)
+
+    def test_zero_time_changes_with_structural_change_still_needs_review(self):
+        connection = StageConnection()
+        repository = TimetableRepository(connection)
+        approved = extraction()
+        first = self._stage(repository, b"%PDF-approved", approved)
+        connection.versions[0]["review_status"] = "approved"
+        connection.source.update(
+            approved_version_id=first.version_id,
+            pending_version_id=None,
+            status="verified",
+        )
+
+        renamed = extraction(route_name="Renamed route")
+        changed = self._stage(repository, b"%PDF-renamed", renamed)
+
+        self.assertEqual(changed.outcome, "changed")
+        self.assertEqual(changed.comparison["changed_time_count"], 0)
+        self.assertEqual(changed.comparison["added_time_count"], 0)
+        self.assertEqual(changed.comparison["removed_time_count"], 0)
+        self.assertTrue(changed.comparison["has_changes"])
+        self.assertEqual(connection.source["pending_version_id"], changed.version_id)
+        self.assertEqual(connection.source["status"], "changed_review_required")
 
     def test_parse_failure_keeps_raw_pdf_in_quarantined_pending_version(self):
         connection = StageConnection()
